@@ -31,11 +31,11 @@
         "key": {
           "use": "sig",
           "kty": "EC",
-          "kid": "vQFaNzv_Cf6rK_zz6JkALTEjioXC92lsWTNBSZ-YMPA",
+          "kid": "REPLACE_WITH_YOUR_PROVISIONER_KID",
           "crv": "P-256",
           "alg": "ES256",
-          "x": "0mNqoFVIVCWjN7qNlIxAwad0Lx_KqZ62MxFkBehMjVA",
-          "y": "UV9FVev7ATHHKphDkYUJz7XCE4TUvdCip5kfAF7Wrsw"
+          "x": "REPLACE_WITH_PUBLIC_X_COORDINATE",
+          "y": "REPLACE_WITH_PUBLIC_Y_COORDINATE"
         },
         "encryptedKey": "...",
         "options": {
