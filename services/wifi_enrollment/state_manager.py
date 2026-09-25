@@ -84,25 +84,26 @@ class StateManager:
         approved_name: str,
         vlan: VlanOption,
         p12_bytes: bytes,
+        pin: Optional[str] = None,
     ) -> tuple[str, str]:
         with self._lock:
             record = self._requests.get(request_id)
             if not record:
                 raise KeyError(f"Request {request_id} not found")
 
-            # Generate 4-digit PIN and high-entropy download token
-            pin = f"{secrets.randbelow(10000):04d}"
+            # Generate 4-digit PIN if not provided and high-entropy download token
+            final_pin = pin or f"{secrets.randbelow(10000):04d}"
             token = secrets.token_urlsafe(32)
 
             record.status = EnrollmentStatus.APPROVED
             record.approved_name = approved_name
             record.vlan = vlan
-            record.pin = pin
+            record.pin = final_pin
             record.download_token = token
             record.p12_data = p12_bytes
             self._token_to_id[token] = request_id
 
-            return token, pin
+            return token, final_pin
 
     def reject_request(
         self, request_id: str, reason: str = "Request was rejected by administrator."
