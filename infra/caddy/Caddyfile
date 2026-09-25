@@ -1,0 +1,32 @@
+# /etc/caddy/Caddyfile
+# Reverse proxy for Spoutin Wi-Fi Enrollment Portal
+# Automatic HTTPS via Let's Encrypt using Cloudflare DNS-01 challenges
+
+wifi.int.spoutin.org {
+    # Automatic TLS using Cloudflare DNS provider
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Proxy to the Python FastAPI wifi-enrollment service
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    log {
+        output file /var/log/caddy/wifi-enrollment.log
+        format json
+    }
+}

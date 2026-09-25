@@ -1,0 +1,61 @@
+{
+  "root": "/etc/step-ca/certs/root_ca.crt",
+  "federatedRoots": null,
+  "crt": "/etc/step-ca/certs/intermediate_ca.crt",
+  "key": "/etc/step-ca/secrets/intermediate_ca_key",
+  "address": ":9000",
+  "insecureAddress": "",
+  "dnsNames": [
+    "step-ca.int.spoutin.org",
+    "step-ca",
+    "localhost"
+  ],
+  "logger": {
+    "format": "text"
+  },
+  "db": {
+    "type": "badgerv2",
+    "dataSource": "/etc/step-ca/db",
+    "badgerFileLoadingMode": ""
+  },
+  "authority": {
+    "claims": {
+      "minTLSCertDuration": "5m",
+      "maxTLSCertDuration": "52560h",
+      "defaultTLSCertDuration": "52560h"
+    },
+    "provisioners": [
+      {
+        "type": "JWK",
+        "name": "admin@int.spoutin.org",
+        "key": {
+          "use": "sig",
+          "kty": "EC",
+          "kid": "vQFaNzv_Cf6rK_zz6JkALTEjioXC92lsWTNBSZ-YMPA",
+          "crv": "P-256",
+          "alg": "ES256",
+          "x": "0mNqoFVIVCWjN7qNlIxAwad0Lx_KqZ62MxFkBehMjVA",
+          "y": "UV9FVev7ATHHKphDkYUJz7XCE4TUvdCip5kfAF7Wrsw"
+        },
+        "encryptedKey": "...",
+        "options": {
+          "x509": {
+            "templateFile": "/etc/step-ca/templates/certs/eap-client.json"
+          }
+        }
+      }
+    ]
+  },
+  "tls": {
+    "cipherSuites": [
+      "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+      "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+      "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    ],
+    "minVersion": 1.2,
+    "maxVersion": 1.3,
+    "renegotiation": false
+  }
+}
