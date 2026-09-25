@@ -1,22 +1,23 @@
 [Unit]
 Description=Spoutin Wi-Fi EAP-TLS Enrollment Service
-After=network.target step-ca.service
-Wants=step-ca.service
+Documentation=https://github.com/spoutin/spoutin-pki
+After=network.target network-online.target step-ca.service
+Wants=network-online.target step-ca.service
+Before=caddy.service
+
+ConditionPathExists=/etc/wifi-enrollment/.env
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/spoutin-pki
-EnvironmentFile=/opt/spoutin-pki/.env
+EnvironmentFile=/etc/wifi-enrollment/.env
 ExecStart=/opt/spoutin-pki/.venv/bin/uvicorn services.wifi_enrollment.server:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=5s
 
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
-
-# Standard logging to journald
 StandardOutput=journal
 StandardError=journal
 

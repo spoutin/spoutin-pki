@@ -1,0 +1,8 @@
+[Unit]
+Description=Spoutin Home Network PKI Stack
+Documentation=https://github.com/spoutin/spoutin-pki
+Wants=step-ca.service wifi-enrollment.service caddy.service
+After=step-ca.service wifi-enrollment.service caddy.service
+
+[Install]
+WantedBy=multi-user.target

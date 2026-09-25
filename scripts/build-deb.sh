@@ -53,6 +53,7 @@ cp "${REPO_ROOT}/.env.example" "${STAGING_DIR}/opt/wifi-enrollment/"
 # 4. Add systemd units & configuration
 cp "${REPO_ROOT}/packaging/systemd/caddy.service" "${STAGING_DIR}/lib/systemd/system/"
 cp "${REPO_ROOT}/packaging/systemd/wifi-enrollment.service" "${STAGING_DIR}/lib/systemd/system/"
+cp "${REPO_ROOT}/packaging/systemd/spoutin-pki.target" "${STAGING_DIR}/lib/systemd/system/"
 cp "${REPO_ROOT}/packaging/systemd/caddy-override.conf.example" "${STAGING_DIR}/etc/systemd/system/caddy.service.d/override.conf.example"
 cp "${REPO_ROOT}/infra/caddy/Caddyfile" "${STAGING_DIR}/etc/caddy/Caddyfile"
 
