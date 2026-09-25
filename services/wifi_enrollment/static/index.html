@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spoutin Wi-Fi Setup</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Spoutin Wi-Fi Access</h1>
+      <p>Secure 802.1X EAP-TLS Device Enrollment</p>
+    </div>
+
+    <div class="content">
+      <!-- 1. Request Form View -->
+      <div id="form-view">
+        <form id="enroll-form">
+          <div class="form-group">
+            <label for="device_name">Device Name</label>
+            <input type="text" id="device_name" name="device_name" placeholder="e.g. ablack-phone" required autocomplete="off" autocorrect="off" autocapitalize="none">
+            <div class="hint">
+              Wi-Fi Identity: <span id="preview-text" class="preview-badge">none</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="platform">Your Device Type</label>
+            <select id="platform" name="platform">
+              <option value="android">Android (Samsung, Pixel, etc.)</option>
+              <option value="ios">iPhone / iPad (iOS)</option>
+              <option value="macos">Mac (macOS)</option>
+              <option value="windows">Windows</option>
+              <option value="other">Other Device</option>
+            </select>
+          </div>
+
+          <div id="form-error" class="banner banner-error hidden"></div>
+
+          <button type="submit" id="submit-btn" class="btn">Request Wi-Fi Access</button>
+        </form>
+      </div>
+
+      <!-- 2. Waiting Screen View -->
+      <div id="waiting-view" class="hidden">
+        <div class="spinner-box">
+          <div class="spinner"></div>
+          <h2>Waiting for Approval</h2>
+          <p class="hint" style="margin-top: 0.5rem;">
+            A request for <strong id="waiting-device-name">...</strong> was sent to the network administrator via Slack.
+          </p>
+          <p class="hint" style="margin-top: 1rem;">
+            Please leave this page open. Your certificate will automatically download once approved.
+          </p>
+        </div>
+      </div>
+
+      <!-- 3. Approved Screen View -->
+      <div id="approved-view" class="hidden">
+        <div class="banner banner-success">
+          <strong>✅ Request Approved!</strong>
+          <div style="font-size: 0.85rem; margin-top: 0.25rem;">Your certificate file has downloaded automatically.</div>
+        </div>
+
+        <div class="pin-card">
+          <div class="pin-label">Certificate Import PIN</div>
+          <div id="approved-pin" class="pin-code">----</div>
+          <div class="hint" style="color: var(--pin-text);">Enter this 4-digit PIN when importing the Wi-Fi certificate on your device.</div>
+        </div>
+
+        <div class="instructions-box">
+          <strong>Wi-Fi Connection Settings</strong>
+          <div style="margin-top: 0.5rem; font-size: 0.85rem;">
+            • <strong>Network (SSID):</strong> Spoutin-Secure<br>
+            • <strong>Identity:</strong> <code id="approved-identity">...</code><br>
+            • <strong>Domain:</strong> <code id="approved-domain">radius.int.spoutin.org</code><br>
+            • <strong>Assigned VLAN:</strong> <span id="approved-vlan">...</span>
+          </div>
+
+          <div id="platform-instructions" style="margin-top: 0.75rem;">
+            <!-- Platform specific instructions injected by app.js -->
+          </div>
+        </div>
+
+        <a id="manual-download-btn" href="#" class="btn btn-secondary">Download Certificate Again (.p12)</a>
+      </div>
+
+      <!-- 4. Rejected / Expired View -->
+      <div id="rejected-view" class="hidden">
+        <div class="banner banner-error">
+          <strong id="reject-title">Request Not Approved</strong>
+          <p id="reject-reason" style="margin-top: 0.4rem; font-size: 0.9rem;">The request was rejected or has expired.</p>
+        </div>
+        <button id="retry-btn" class="btn btn-secondary">Submit New Request</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

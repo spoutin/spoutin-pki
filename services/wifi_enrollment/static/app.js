@@ -1,0 +1,204 @@
+(() => {
+  const formView = document.getElementById("form-view");
+  const waitingView = document.getElementById("waiting-view");
+  const approvedView = document.getElementById("approved-view");
+  const rejectedView = document.getElementById("rejected-view");
+
+  const enrollForm = document.getElementById("enroll-form");
+  const deviceInput = document.getElementById("device_name");
+  const platformSelect = document.getElementById("platform");
+  const previewText = document.getElementById("preview-text");
+  const formError = document.getElementById("form-error");
+
+  const waitingDeviceName = document.getElementById("waiting-device-name");
+  const approvedPin = document.getElementById("approved-pin");
+  const approvedIdentity = document.getElementById("approved-identity");
+  const approvedDomain = document.getElementById("approved-domain");
+  const approvedVlan = document.getElementById("approved-vlan");
+  const platformInstructions = document.getElementById("platform-instructions");
+  const manualDownloadBtn = document.getElementById("manual-download-btn");
+
+  const rejectTitle = document.getElementById("reject-title");
+  const rejectReason = document.getElementById("reject-reason");
+  const retryBtn = document.getElementById("retry-btn");
+
+  let pollInterval = null;
+  let hasAutoDownloaded = false;
+
+  // Auto-sanitizer for device name input
+  function sanitizeName(raw) {
+    if (!raw) return "";
+    let s = raw.toLowerCase().trim();
+    s = s.replace(/[\s_.]+/g, "-");
+    s = s.replace(/[^a-z0-9-]/g, "");
+    s = s.replace(/-+/g, "-");
+    return s.replace(/^-+|-+$/g, "");
+  }
+
+  deviceInput.addEventListener("input", () => {
+    const sanitized = sanitizeName(deviceInput.value);
+    previewText.textContent = sanitized || "none";
+  });
+
+  function showView(view) {
+    formView.classList.add("hidden");
+    waitingView.classList.add("hidden");
+    approvedView.classList.add("hidden");
+    rejectedView.classList.add("hidden");
+    view.classList.remove("hidden");
+  }
+
+  function getPlatformGuide(platform, identity, domain) {
+    switch (platform) {
+      case "android":
+        return `
+          <strong>Android Setup Steps:</strong>
+          <ol>
+            <li>Tap the downloaded certificate file (or go to <em>Settings &gt; Security &gt; Install from storage &gt; Wi-Fi certificate</em>).</li>
+            <li>Enter the 4-digit PIN above when prompted.</li>
+            <li>In Wi-Fi settings for your network:
+              <ul>
+                <li><strong>EAP method:</strong> <code>TLS</code></li>
+                <li><strong>CA certificate:</strong> Select your Root CA (e.g. <code>Spoutin-Root-CA</code>)</li>
+                <li><strong>Domain:</strong> <code>${domain}</code></li>
+                <li><strong>User certificate:</strong> Select the certificate you just imported</li>
+                <li><strong>Identity:</strong> <code>${identity}</code></li>
+              </ul>
+            </li>
+          </ol>
+        `;
+      case "ios":
+      case "macos":
+        return `
+          <strong>Apple (iOS / macOS) Setup Steps:</strong>
+          <ol>
+            <li>Open the downloaded <code>.p12</code> file to import into Apple Keychain / Profiles.</li>
+            <li>Enter the 4-digit PIN when prompted.</li>
+            <li>Select your 802.1X Wi-Fi network and authenticate using the imported certificate identity: <code>${identity}</code>.</li>
+          </ol>
+        `;
+      case "windows":
+        return `
+          <strong>Windows Setup Steps:</strong>
+          <ol>
+            <li>Double-click the downloaded <code>.p12</code> file to launch the Certificate Import Wizard.</li>
+            <li>Select <em>Current User</em>, enter the 4-digit PIN, and choose automatic store placement.</li>
+            <li>Connect to the Wi-Fi network and select this certificate when prompted.</li>
+          </ol>
+        `;
+      default:
+        return `
+          <strong>General Setup Steps:</strong>
+          <ol>
+            <li>Import the <code>.p12</code> certificate bundle using the 4-digit PIN.</li>
+            <li>Configure EAP-TLS with Identity <code>${identity}</code> and Server Domain <code>${domain}</code>.</li>
+          </ol>
+        `;
+    }
+  }
+
+  enrollForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    formError.classList.add("hidden");
+    const rawName = deviceInput.value;
+    const sanitized = sanitizeName(rawName);
+
+    if (!sanitized || sanitized.length < 2) {
+      formError.textContent = "Please enter a valid device name (at least 2 letters/numbers).";
+      formError.classList.remove("hidden");
+      return;
+    }
+
+    const platform = platformSelect.value;
+
+    try {
+      const resp = await fetch("/api/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_name: sanitized, platform: platform }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || "Failed to submit request.");
+      }
+
+      const data = await resp.json();
+      waitingDeviceName.textContent = data.device_name;
+      showView(waitingView);
+      hasAutoDownloaded = false;
+
+      // Start polling status
+      startPolling(data.request_id);
+    } catch (err) {
+      formError.textContent = err.message;
+      formError.classList.remove("hidden");
+    }
+  });
+
+  function startPolling(requestId) {
+    if (pollInterval) clearInterval(pollInterval);
+
+    pollInterval = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/status/${requestId}`);
+        if (!resp.ok) return;
+
+        const data = await resp.json();
+
+        if (data.status === "approved") {
+          clearInterval(pollInterval);
+
+          approvedPin.textContent = data.pin || "----";
+          approvedIdentity.textContent = data.radius_identity || data.device_name;
+          approvedDomain.textContent = data.radius_domain || "radius.int.spoutin.org";
+          approvedVlan.textContent = data.vlan_label || `VLAN ${data.vlan_id}`;
+
+          platformInstructions.innerHTML = getPlatformGuide(
+            data.platform,
+            data.radius_identity || data.device_name,
+            data.radius_domain || "radius.int.spoutin.org"
+          );
+
+          if (data.download_token) {
+            const dlUrl = `/api/download/${data.download_token}`;
+            manualDownloadBtn.href = dlUrl;
+
+            // Trigger auto-download once
+            if (!hasAutoDownloaded) {
+              hasAutoDownloaded = true;
+              const link = document.createElement("a");
+              link.href = dlUrl;
+              link.download = `${data.radius_identity || data.device_name}.p12`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }
+          }
+
+          showView(approvedView);
+        } else if (data.status === "rejected") {
+          clearInterval(pollInterval);
+          rejectTitle.textContent = "Request Rejected";
+          rejectReason.textContent = data.message || "Your enrollment request was rejected by an administrator.";
+          showView(rejectedView);
+        } else if (data.status === "expired") {
+          clearInterval(pollInterval);
+          rejectTitle.textContent = "Request Expired";
+          rejectReason.textContent = "Your request expired while waiting for administrator review.";
+          showView(rejectedView);
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 2000);
+  }
+
+  retryBtn.addEventListener("click", () => {
+    if (pollInterval) clearInterval(pollInterval);
+    deviceInput.value = "";
+    previewText.textContent = "none";
+    formError.classList.add("hidden");
+    showView(formView);
+  });
+})();

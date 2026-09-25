@@ -113,3 +113,10 @@ def test_download_endpoint(test_app):
     # Second download must return 404 (single use)
     dl_resp2 = client.get(f"/api/download/{token}")
     assert dl_resp2.status_code == 404
+
+
+def test_index_page(test_app):
+    client, _, _ = test_app
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Spoutin Wi-Fi Access" in resp.text
