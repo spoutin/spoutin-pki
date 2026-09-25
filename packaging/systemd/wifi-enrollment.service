@@ -1,0 +1,21 @@
+[Unit]
+Description=Spoutin Wi-Fi EAP-TLS Enrollment Service
+After=network.target step-ca.service
+Wants=step-ca.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/wifi-enrollment
+EnvironmentFile=/etc/wifi-enrollment/.env
+ExecStart=/opt/wifi-enrollment/.venv/bin/uvicorn services.wifi_enrollment.server:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

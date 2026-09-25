@@ -68,9 +68,47 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 
 ---
 
-### 4. Deploying `wifi-enrollment` on the `step-ca` LXC
+### 4. Installation via Debian Package (`.deb`) — Recommended
 
-SSH into your `step-ca` container:
+The GitHub Actions workflow builds a unified `.deb` package containing the custom Caddy binary (with Cloudflare DNS), `wifi-enrollment` service, systemd units, and boilerplate configs.
+
+1. **Download the latest `.deb` package** from your repository's GitHub Releases (or GitHub Actions artifacts).
+2. **Install on the `step-ca` LXC:**
+   ```bash
+   dpkg -i wifi-enrollment_0.1.0_amd64.deb
+   ```
+   *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, and configures systemd.*
+
+3. **Configure Environment (`/etc/wifi-enrollment/.env`):**
+   ```bash
+   nano /etc/wifi-enrollment/.env
+   ```
+   Fill in your `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, and `SLACK_*` tokens.
+
+4. **Configure Cloudflare API Token for Caddy:**
+   ```bash
+   mkdir -p /etc/systemd/system/caddy.service.d
+   cat << 'EOF' > /etc/systemd/system/caddy.service.d/override.conf
+   [Service]
+   Environment="CLOUDFLARE_API_TOKEN=your_cloudflare_api_token_here"
+   EOF
+   systemctl daemon-reload
+   ```
+
+5. **Start and Enable Services:**
+   ```bash
+   systemctl enable --now caddy
+   systemctl enable --now wifi-enrollment
+
+   systemctl status caddy
+   systemctl status wifi-enrollment
+   ```
+
+---
+
+### 5. Alternative: Manual Deployment from Git
+
+If you prefer deploying directly from the git repository without a `.deb`:
 
 ```bash
 # 1. Clone repository to /opt/spoutin-pki

@@ -1,0 +1,11 @@
+Package: wifi-enrollment
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: Adam Black <adam@spoutin.org>
+Depends: curl, ca-certificates
+Description: Spoutin Wi-Fi EAP-TLS Enrollment Portal and Caddy Reverse Proxy
+ Automated 802.1X device enrollment portal with Slack approvals,
+ step-ca REST integration, FreeRADIUS dynamic VLANs, and Caddy with
+ Cloudflare DNS-01 Let's Encrypt TLS.

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet wifi-enrollment; then
+        echo "Stopping wifi-enrollment service..."
+        systemctl stop wifi-enrollment || true
+    fi
+    if systemctl is-active --quiet caddy; then
+        echo "Stopping caddy service..."
+        systemctl stop caddy || true
+    fi
+fi
+
+exit 0
