@@ -72,27 +72,65 @@ journalctl -u wifi-enrollment -n 50 --no-pager
 
 ## 5. Configure Caddy with Cloudflare DNS
 
-1. Install Caddy with the Cloudflare DNS module:
-   ```bash
-   # Using xcaddy or downloading caddy with cloudflare plugin:
-   curl -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com%2Fcaddy-dns%2Fcloudflare"
-   chmod +x /usr/bin/caddy
-   ```
+Installing Caddy via your package manager first sets up the official `caddy` user, systemd service file, and directory permissions. Then, replace the binary with the Cloudflare DNS module build.
 
-2. Set Cloudflare API Token in Caddy's environment (`/etc/systemd/system/caddy.service.d/override.conf`):
-   ```ini
-   [Service]
-   Environment="CLOUDFLARE_API_TOKEN=your_cloudflare_api_token_here"
-   ```
+### Step 5a: Install Official Caddy Package
 
-3. Deploy Caddyfile:
-   ```bash
-   mkdir -p /etc/caddy
-   cp /opt/spoutin-pki/infra/caddy/Caddyfile /etc/caddy/Caddyfile
-   systemctl daemon-reload
-   systemctl restart caddy
-   systemctl status caddy
-   ```
+* **On Debian / Ubuntu:**
+  ```bash
+  apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  apt update
+  apt install -y caddy
+  ```
+
+* **On Alpine Linux:**
+  ```bash
+  apk add caddy
+  ```
+
+### Step 5b: Replace Binary with Cloudflare DNS Plugin Build
+
+Replace `/usr/bin/caddy` with the build containing `caddy-dns/cloudflare`:
+
+```bash
+# Stop caddy service before replacing the binary
+systemctl stop caddy
+
+# Download custom caddy binary with cloudflare plugin
+curl -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com%2Fcaddy-dns%2Fcloudflare"
+chmod +x /usr/bin/caddy
+
+# Verify the cloudflare dns plugin is present in the binary
+caddy list-modules | grep cloudflare
+# Output should show: dns.providers.cloudflare
+```
+
+### Step 5c: Configure Cloudflare API Token in systemd
+
+Create the systemd override directory and set the API token:
+
+```bash
+mkdir -p /etc/systemd/system/caddy.service.d
+
+cat << 'EOF' > /etc/systemd/system/caddy.service.d/override.conf
+[Service]
+Environment="CLOUDFLARE_API_TOKEN=your_cloudflare_api_token_here"
+EOF
+```
+
+### Step 5d: Deploy Caddyfile & Restart
+
+```bash
+mkdir -p /etc/caddy
+cp /opt/spoutin-pki/infra/caddy/Caddyfile /etc/caddy/Caddyfile
+
+systemctl daemon-reload
+systemctl enable --now caddy
+systemctl restart caddy
+systemctl status caddy
+```
 
 ---
 
