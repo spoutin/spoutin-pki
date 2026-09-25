@@ -95,20 +95,25 @@ The GitHub Actions workflow builds a unified `.deb` package containing the custo
    systemctl daemon-reload
    ```
 
-5. **Start and Enable Services:**
+5. **Start and Manage Services via Unified Target:**
+   The package configures systemd dependencies so that `step-ca`, `wifi-enrollment`, and `caddy` start in their required order. You can manage the entire stack with the unified `spoutin-pki.target`:
    ```bash
-   systemctl enable --now caddy
-   systemctl enable --now wifi-enrollment
+   # Start the entire PKI stack (step-ca -> wifi-enrollment -> caddy)
+   systemctl start spoutin-pki.target
 
-   systemctl status caddy
+   # Check status of the stack
+   systemctl status spoutin-pki.target
+
+   # Or manage individual services:
    systemctl status wifi-enrollment
+   systemctl status caddy
    ```
 
 ---
 
 ### 5. Alternative: Manual Deployment from Git
 
-If you prefer deploying directly from the git repository without a `.deb`:
+If you prefer deploying directly from the git repository without the `.deb` package:
 
 ```bash
 # 1. Clone repository to /opt/spoutin-pki
@@ -117,19 +122,20 @@ git clone <your-repo-url> /opt/spoutin-pki
 cd /opt/spoutin-pki
 
 # 2. Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.cargo/env
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
 
 # 3. Install Python dependencies
 uv sync
 
 # 4. Configure .env file
-cp .env.example .env
-chmod 600 .env
-nano .env
+mkdir -p /etc/wifi-enrollment
+cp .env.example /etc/wifi-enrollment/.env
+chmod 600 /etc/wifi-enrollment/.env
+ln -sf /etc/wifi-enrollment/.env .env
+nano /etc/wifi-enrollment/.env
 ```
 
-Ensure the following values are configured in `/opt/spoutin-pki/.env`:
+Ensure credentials are configured in `/etc/wifi-enrollment/.env`:
 
 ```ini
 SERVICE_HOST=127.0.0.1
@@ -155,12 +161,14 @@ SLACK_APP_TOKEN=xapp-...
 SLACK_CHANNEL_ID=C0XXXXXXXXX
 ```
 
-Install and enable the systemd service:
+Install the systemd service units and target:
 
 ```bash
-cp /opt/spoutin-pki/infra/systemd/wifi-enrollment.service /etc/systemd/system/
+cp /opt/spoutin-pki/packaging/systemd/wifi-enrollment.service /etc/systemd/system/
+cp /opt/spoutin-pki/packaging/systemd/spoutin-pki.target /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now wifi-enrollment
+systemctl enable wifi-enrollment.service spoutin-pki.target
+systemctl start spoutin-pki.target
 
 # Verify status
 systemctl status wifi-enrollment
@@ -169,9 +177,9 @@ journalctl -u wifi-enrollment -n 50 --no-pager
 
 ---
 
-### 5. Configuring Caddy Reverse Proxy
+### 6. Configuring Caddy Reverse Proxy (Manual Install)
 
-Installing Caddy via your package manager first creates the official `caddy` user, systemd service, and directory structure. Then, replace the binary with the build that includes the Cloudflare DNS module.
+If manually deploying Caddy without the `.deb`:
 
 1. **Install official Caddy package:**
    * **On Debian / Ubuntu:**
@@ -207,19 +215,20 @@ Installing Caddy via your package manager first creates the official `caddy` use
    EOF
    ```
 
-4. **Deploy Caddyfile & Start Caddy:**
+4. **Deploy Caddyfile & Unit Files:**
    ```bash
    mkdir -p /etc/caddy
    cp /opt/spoutin-pki/infra/caddy/Caddyfile /etc/caddy/Caddyfile
+   cp /opt/spoutin-pki/packaging/systemd/caddy.service /etc/systemd/system/
    systemctl daemon-reload
-   systemctl enable --now caddy
+   systemctl enable caddy
    systemctl restart caddy
    systemctl status caddy
    ```
 
 ---
 
-### 6. Verifying End-to-End Enrollment
+### 7. Verifying End-to-End Enrollment
 
 1. On a client device connected to your Guest or Setup Wi-Fi, open `https://wifi.int.spoutin.org`.
 2. Enter a device name (e.g. `ablack-phone`) and select your platform (e.g. Android).
