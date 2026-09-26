@@ -259,3 +259,18 @@ def test_get_crl_success(mock_get):
     client.get_crl(as_pem=True)
     mock_get.assert_called_with("https://127.0.0.1:9000/crl", params={"pem": ""}, verify=False, timeout=10)
 
+
+def test_eap_client_template_has_crldp():
+    """Verify that eap-client.json template includes crlDistributionPoints to prevent error 44 (different CRL scope)."""
+    import os
+    template_path = os.path.join(
+        os.path.dirname(__file__), "..", "infra", "step-ca", "templates", "eap-client.json"
+    )
+    assert os.path.isfile(template_path)
+    with open(template_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "crlDistributionPoints" in content
+    assert "https://step-ca.int.spoutin.org/1.0/crl" in content
+    assert "https://wifi.int.spoutin.org/crl.pem" in content
+

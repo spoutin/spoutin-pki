@@ -2,5 +2,9 @@
   "subject": {{ toJson .Subject }},
   "sans": {{ toJson .SANs }},
   "keyUsage": ["digitalSignature", "keyEncipherment"],
-  "extKeyUsage": ["clientAuth"]
+  "extKeyUsage": ["clientAuth"],
+  "crlDistributionPoints": [
+    "https://step-ca.int.spoutin.org/1.0/crl",
+    "https://wifi.int.spoutin.org/crl.pem"
+  ]
 }

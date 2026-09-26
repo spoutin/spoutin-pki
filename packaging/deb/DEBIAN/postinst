@@ -30,37 +30,76 @@ fi
 # Link .env to service directory
 ln -sf /etc/wifi-enrollment/.env /opt/wifi-enrollment/.env
 
-# Check and auto-configure step-ca ca.json for CRL support
+# Check and auto-configure step-ca ca.json and certificate templates for CRL support
 STEP_CA_JSON="/etc/step-ca/config/ca.json"
-if [ -f "$STEP_CA_JSON" ]; then
-    CHANGED=0
+if [ -f "$STEP_CA_JSON" ] || [ -d "/etc/step-ca" ]; then
     python3 - << 'EOF' || true
-import json, sys
+import json, os, sys
 
-path = "/etc/step-ca/config/ca.json"
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+need_restart = False
+ca_path = "/etc/step-ca/config/ca.json"
+template_paths = {
+    "/etc/step-ca/templates/certs/eap-client.json",
+    "/etc/step-ca/templates/eap-client.json",
+}
 
-    crl = data.get("crl")
-    if not isinstance(crl, dict) or not crl.get("enabled"):
-        print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
-        data["crl"] = {
-            "enabled": True,
-            "generateOnRevoke": True,
-            "cacheDuration": "24h"
-        }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-            f.write("\n")
-        print("Updated ca.json with CRL configuration.")
-        sys.exit(10)
-except Exception as e:
-    print(f"Notice: Could not auto-update ca.json: {e}")
+if os.path.exists(ca_path):
+    try:
+        with open(ca_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        crl = data.get("crl")
+        if not isinstance(crl, dict) or not crl.get("enabled"):
+            print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
+            data["crl"] = {
+                "enabled": True,
+                "generateOnRevoke": True,
+                "cacheDuration": "24h"
+            }
+            with open(ca_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+            print("Updated ca.json with CRL configuration.")
+            need_restart = True
+
+        for p in data.get("authority", {}).get("provisioners", []):
+            tf = p.get("options", {}).get("x509", {}).get("templateFile")
+            if tf:
+                template_paths.add(tf)
+    except Exception as e:
+        print(f"Notice: Could not inspect ca.json: {e}")
+
+crl_block = '''  "crlDistributionPoints": [
+    "https://step-ca.int.spoutin.org/1.0/crl",
+    "https://wifi.int.spoutin.org/crl.pem"
+  ]'''
+
+for tp in template_paths:
+    if os.path.isfile(tp):
+        try:
+            with open(tp, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "crlDistributionPoints" not in content:
+                print(f"Adding crlDistributionPoints to template {tp}...")
+                idx = content.rfind("}")
+                if idx != -1:
+                    prefix = content[:idx].rstrip()
+                    if not prefix.endswith(","):
+                        prefix += ","
+                    new_content = f"{prefix}\n{crl_block}\n{content[idx:]}"
+                    with open(tp, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    print(f"Updated {tp} with crlDistributionPoints.")
+                    need_restart = True
+        except Exception as e:
+            print(f"Notice: Could not update template {tp}: {e}")
+
+if need_restart:
+    sys.exit(10)
 EOF
     if [ $? -eq 10 ]; then
         if command -v systemctl >/dev/null 2>&1; then
-            echo "Restarting step-ca to activate CRL generation..."
+            echo "Restarting step-ca to apply CRL and template changes..."
             systemctl restart step-ca || true
         fi
     fi
