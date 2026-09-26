@@ -143,6 +143,9 @@
         <h2>Approve Device Enrollment</h2>
       </div>
       <div class="modal-body">
+        <div id="edit-approve-warning" class="hidden" style="margin-bottom: 1rem; padding: 0.6rem 0.8rem; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 6px; font-size: 0.85rem; color: #eab308;">
+          ⚠️ <strong>Notice:</strong> An active device with this name already exists. Approving will update its FreeRADIUS account and VLAN.
+        </div>
         <div class="modal-field">
           <label for="edit-device-name">Device Name / Wi-Fi Identity</label>
           <input type="text" id="edit-device-name" class="search-input" style="width: 100%;">

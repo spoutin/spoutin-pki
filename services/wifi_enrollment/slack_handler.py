@@ -47,11 +47,13 @@ class SlackEnrollmentHandler:
 
     def build_enrollment_blocks(self, record: RequestRecord) -> list[dict]:
         """Constructs interactive Slack message card with Quick Approve, Edit, and Reject."""
-        # Check if user already exists in FreeRADIUS for warning badge
-        exists = self.radius_client.user_exists(record.device_name)
+        # Check if user already exists in FreeRADIUS or SQLite for warning badge
+        exists_radius = self.radius_client.user_exists(record.device_name)
+        exists_db = self.database.device_name_exists(record.device_name) if self.database else False
+        is_update = exists_radius or exists_db
         status_note = (
-            "⚠️ *Warning: already exists in FreeRADIUS*"
-            if exists
+            "⚠️ *Existing Device (Re-enrollment / Update)*"
+            if is_update
             else "🟢 *New Device*"
         )
 
@@ -209,11 +211,14 @@ class SlackEnrollmentHandler:
             errors["device_name_block"] = f"'{sanitized}' is a reserved network name."
             return errors
 
-        if not allow_overwrite and self.radius_client.user_exists(sanitized):
+        exists_radius = self.radius_client.user_exists(sanitized)
+        exists_db = self.database.device_name_exists(sanitized) if self.database else False
+        if not allow_overwrite and (exists_radius or exists_db):
             errors["device_name_block"] = (
-                f"User '{sanitized}' already exists in FreeRADIUS! "
+                f"User '{sanitized}' already exists! "
                 "Pick a unique name or check 'Allow overwrite' below."
             )
+            return errors
 
         return errors
 
@@ -252,11 +257,12 @@ class SlackEnrollmentHandler:
         if not record:
             raise KeyError(f"Request {request_id} not found in state manager")
 
-        # 5. Add user to FreeRADIUS and reconfigure
-        self.radius_client.add_user(
+        # 5. Add or update user in FreeRADIUS and reconfigure
+        desc = f"Spoutin PKI | req:{request_id} | vlan:{vlan.value}"
+        self.radius_client.upsert_user(
             username=approved_name,
             vlan=vlan.value,
-            description="Auto-enrolled via wifi-enrollment",
+            description=desc,
         )
         self.radius_client.reconfigure_service()
 
@@ -279,6 +285,7 @@ class SlackEnrollmentHandler:
                     issued_at=now,
                     expires_at=now + 52560 * 3600,
                     opnsense_uuid=opn_uuid,
+                    request_id=request_id,
                 )
         except Exception as e:
             logger.error(f"Failed to record certificate to database: {e}", exc_info=True)

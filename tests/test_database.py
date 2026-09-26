@@ -163,3 +163,35 @@ def test_update_certificate_vlan(db):
     cert2 = db.get_certificate("5555")
     assert cert2["vlan_id"] == 9
     assert cert2["vlan_label"] == "9 - IoT"
+
+
+def test_request_id_and_device_name_exists(db):
+    now = int(time.time())
+    db.insert_certificate(
+        serial_number="7777",
+        device_name="device-req-test",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.1",
+        cert_pem="PEM",
+        issued_at=now,
+        expires_at=now + 1000,
+        request_id="req-test-999",
+    )
+
+    cert = db.get_certificate("7777")
+    assert cert["request_id"] == "req-test-999"
+
+    # Search by request_id
+    res = db.list_certificates(search="req-test-999")
+    assert len(res) == 1
+    assert res[0]["serial_number"] == "7777"
+
+    # Check device_name_exists
+    assert db.device_name_exists("device-req-test") is True
+    assert db.device_name_exists("nonexistent-device") is False
+
+    # Revoking makes device_name_exists return False
+    db.revoke_certificate(serial_number="7777", reason="Retired", scope="CERT_ONLY")
+    assert db.device_name_exists("device-req-test") is False

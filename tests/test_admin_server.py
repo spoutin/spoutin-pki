@@ -67,11 +67,30 @@ def test_admin_stats_and_requests(admin_test_app):
     reqs = reqs_resp.json()
     assert len(reqs) == 1
     assert reqs[0]["device_name"] == "dev-test"
+    assert reqs[0]["is_update"] is False
 
     stats_resp = client.get("/api/admin/stats")
     assert stats_resp.status_code == 200
     assert stats_resp.headers.get("Cache-Control") == "no-store, no-cache, must-revalidate, max-age=0"
     assert stats_resp.json()["total"] == 0
+
+    # Insert existing active certificate for dev-test
+    db.insert_certificate(
+        serial_number="123456",
+        device_name="dev-test",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.1",
+        cert_pem="PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+    reqs_resp2 = client.get("/api/admin/requests")
+    assert reqs_resp2.json()[0]["is_update"] is True
+
+    stats_resp2 = client.get("/api/admin/stats")
+    assert stats_resp2.json()["total"] == 1
 
     certs_resp = client.get("/api/admin/certificates")
     assert certs_resp.status_code == 200
@@ -249,6 +268,7 @@ def test_admin_update_vlan(admin_test_app):
         cert_pem="PEM",
         issued_at=1000,
         expires_at=2000,
+        request_id="req-vlan-test",
     )
     radius_client.update_user_vlan.return_value = True
 
@@ -261,7 +281,9 @@ def test_admin_update_vlan(admin_test_app):
     assert data["vlan_id"] == 1
     assert "LAN" in data["vlan_label"]
 
-    radius_client.update_user_vlan.assert_called_once_with("device-vlan-change", 1)
+    radius_client.update_user_vlan.assert_called_once_with(
+        "device-vlan-change", 1, description="Spoutin PKI | req:req-vlan-test | vlan:1"
+    )
     cert = db.get_certificate("99999")
     assert cert["vlan_id"] == 1
 

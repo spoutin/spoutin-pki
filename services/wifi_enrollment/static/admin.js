@@ -30,7 +30,9 @@
   const editVlanSelect = document.getElementById("edit-vlan-select");
   const modalCancelBtn = document.getElementById("modal-cancel-btn");
   const modalConfirmApproveBtn = document.getElementById("modal-confirm-approve-btn");
+  const editApproveWarning = document.getElementById("edit-approve-warning");
   let activeModalRequestId = null;
+  let currentActiveDevices = new Set();
 
   const revokeModal = document.getElementById("revoke-modal");
   const revokeDeviceName = document.getElementById("revoke-device-name");
@@ -227,9 +229,12 @@
       requests.forEach((r) => {
         const tr = document.createElement("tr");
         const timeAgo = formatTimeAgo(r.created_at);
+        const updateBadge = r.is_update
+          ? `<span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); font-size: 0.72rem; margin-left: 6px;">⚠️ Update</span>`
+          : "";
 
         tr.innerHTML = `
-          <td><strong>${escapeHtml(r.device_name)}</strong></td>
+          <td><strong>${escapeHtml(r.device_name)}</strong>${updateBadge}</td>
           <td><span class="badge badge-vlan">${escapeHtml(r.platform)}</span></td>
           <td><code>${escapeHtml(r.client_ip)}</code></td>
           <td>${timeAgo}</td>
@@ -263,6 +268,12 @@
       if (!resp.ok) return;
       const certs = await resp.json();
 
+      currentActiveDevices = new Set(
+        certs
+          .filter((c) => c.status === "ACTIVE")
+          .map((c) => c.device_name.toLowerCase())
+      );
+
       inventoryTbody.innerHTML = "";
       if (certs.length === 0) {
         inventoryEmpty.classList.remove("hidden");
@@ -283,6 +294,10 @@
           ? `${String(c.serial_number).slice(0, 8)}...${String(c.serial_number).slice(-8)}`
           : (c.serial_number || "");
 
+        const reqIdHtml = c.request_id
+          ? `<div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace; margin-top: 2px;">req: ${escapeHtml(c.request_id)}</div>`
+          : "";
+
         const serialCellHtml = `
           <span class="serial-cell">
             <code title="Full Serial: ${escapeHtml(c.serial_number)}">${escapeHtml(shortSerial)}</code>
@@ -302,7 +317,7 @@
              <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
 
         tr.innerHTML = `
-          <td><strong>${escapeHtml(c.device_name)}</strong></td>
+          <td><div><strong>${escapeHtml(c.device_name)}</strong></div>${reqIdHtml}</td>
           <td>${escapeHtml(c.platform)}</td>
           <td>${vlanBadgeHtml}</td>
           <td>${serialCellHtml}</td>
@@ -347,6 +362,7 @@
       activeModalRequestId = reqId;
       editDeviceNameInput.value = name;
       editVlanSelect.value = "8";
+      checkDuplicateWarning(name);
       editApproveModal.classList.remove("hidden");
     } else if (action === "reject") {
       if (!confirm(`Are you sure you want to reject request for ${name}?`)) return;
@@ -397,6 +413,20 @@
   });
 
   // --- Modal Event Listeners ---
+  function checkDuplicateWarning(name) {
+    if (!editApproveWarning) return;
+    const exists = name && currentActiveDevices.has(name.toLowerCase());
+    if (exists) {
+      editApproveWarning.classList.remove("hidden");
+    } else {
+      editApproveWarning.classList.add("hidden");
+    }
+  }
+
+  editDeviceNameInput.addEventListener("input", () => {
+    checkDuplicateWarning(editDeviceNameInput.value.trim());
+  });
+
   modalCancelBtn.addEventListener("click", () => {
     editApproveModal.classList.add("hidden");
     activeModalRequestId = null;

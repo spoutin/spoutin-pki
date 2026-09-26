@@ -197,7 +197,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.5",
+        version="0.2.6",
         lifespan=lifespan,
     )
 
@@ -529,6 +529,7 @@ def create_app(
                     "client_ip": r.client_ip,
                     "created_at": r.created_at,
                     "expires_at": r.expires_at,
+                    "is_update": bool(db.device_name_exists(r.device_name)),
                 }
                 for r in sm._requests.values()
                 if r.status == EnrollmentStatus.PENDING and time.time() <= r.expires_at
@@ -709,7 +710,13 @@ def create_app(
         rc_client: Optional[FreeRadiusClient] = app.state.radius_client
         if rc_client:
             try:
-                rc_client.update_user_vlan(cert["device_name"], body.vlan_id)
+                req_id = cert.get("request_id")
+                desc = (
+                    f"Spoutin PKI | req:{req_id} | vlan:{body.vlan_id}"
+                    if req_id
+                    else f"Spoutin PKI | vlan:{body.vlan_id}"
+                )
+                rc_client.update_user_vlan(cert["device_name"], body.vlan_id, description=desc)
             except Exception as e:
                 logger.error(f"Failed to update FreeRADIUS VLAN for {cert['device_name']}: {e}", exc_info=True)
                 raise HTTPException(status_code=502, detail=f"Failed to update FreeRADIUS: {e}")

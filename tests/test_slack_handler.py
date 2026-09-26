@@ -112,10 +112,10 @@ def test_process_approval_flow(mock_clients):
     step_client.build_p12_bundle.assert_called_once()
 
     # Verify FreeRADIUS was called
-    radius_client.add_user.assert_called_once_with(
+    radius_client.upsert_user.assert_called_once_with(
         username="ablack-phone",
         vlan=8,
-        description="Auto-enrolled via wifi-enrollment",
+        description=f"Spoutin PKI | req:{record.request_id} | vlan:8",
     )
     radius_client.reconfigure_service.assert_called_once()
 

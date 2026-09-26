@@ -1,10 +1,13 @@
+import logging
 import secrets
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+logger = logging.getLogger(__name__)
 
 
 class FreeRadiusClient:
@@ -34,7 +37,7 @@ class FreeRadiusClient:
                 endpoint,
                 auth=self.auth,
                 verify=self.verify_ssl,
-                json={"searchPhrase": username},
+                json={"searchPhrase": username, "rowCount": -1},
                 timeout=10,
             )
             resp.raise_for_status()
@@ -53,7 +56,7 @@ class FreeRadiusClient:
                 endpoint,
                 auth=self.auth,
                 verify=self.verify_ssl,
-                json={"searchPhrase": username},
+                json={"searchPhrase": username, "rowCount": -1},
                 timeout=10,
             )
             resp.raise_for_status()
@@ -119,11 +122,44 @@ class FreeRadiusClient:
         )
         resp.raise_for_status()
         data = resp.json()
+        if data.get("result") in ("saved", "ok"):
+            return data
+        raise RuntimeError(f"Failed to add FreeRADIUS user: {data}")
 
-        if data.get("result") != "saved":
-            raise RuntimeError(f"Failed to add FreeRADIUS user '{username}': {data}")
-
-        return data
+    def upsert_user(
+        self,
+        username: str,
+        vlan: int,
+        description: str = "Auto-enrolled via wifi-enrollment",
+        password: Optional[str] = None,
+    ) -> dict:
+        """Adds a new user or updates an existing user in FreeRADIUS to prevent duplicates."""
+        user_uuid = self.get_user_uuid(username)
+        if user_uuid:
+            logger.info("FreeRADIUS user '%s' already exists (UUID: %s); updating VLAN and description.", username, user_uuid)
+            endpoint = f"{self.url}/api/freeradius/user/setUser/{user_uuid}"
+            payload = {
+                "user": {
+                    "vlan": str(vlan),
+                    "description": description,
+                }
+            }
+            resp = self.session.post(
+                endpoint,
+                auth=self.auth,
+                verify=self.verify_ssl,
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        else:
+            return self.add_user(
+                username=username,
+                vlan=vlan,
+                description=description,
+                password=password,
+            )
 
     def list_users(self) -> dict[str, dict]:
         """Returns all FreeRADIUS users and their configured VLANs from OPNsense."""
@@ -155,21 +191,20 @@ class FreeRadiusClient:
         except Exception:
             return {}
 
-    def update_user_vlan(self, username: str, vlan: int) -> bool:
-        """Updates the Dynamic VLAN assignment for an existing FreeRADIUS user and reconfigures."""
+    def update_user_vlan(self, username: str, vlan: int, description: Optional[str] = None) -> bool:
+        """Updates the Dynamic VLAN assignment (and optionally description) for an existing FreeRADIUS user and reconfigures."""
         user_uuid = self.get_user_uuid(username)
         if not user_uuid:
             # Fallback to adding the user if not found
-            self.add_user(username=username, vlan=vlan)
+            self.add_user(username=username, vlan=vlan, description=description or "Auto-enrolled via wifi-enrollment")
             self.reconfigure_service()
             return True
 
         endpoint = f"{self.url}/api/freeradius/user/setUser/{user_uuid}"
-        payload = {
-            "user": {
-                "vlan": str(vlan),
-            }
-        }
+        payload_user: dict[str, Any] = {"vlan": str(vlan)}
+        if description:
+            payload_user["description"] = description
+        payload = {"user": payload_user}
         resp = self.session.post(
             endpoint,
             auth=self.auth,

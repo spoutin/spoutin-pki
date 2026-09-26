@@ -45,13 +45,21 @@ class CertificateDatabase:
                     revoked_at INTEGER,
                     revocation_reason TEXT,
                     revocation_scope TEXT,
-                    opnsense_uuid TEXT
+                    opnsense_uuid TEXT,
+                    request_id TEXT
                 );
                 """
             )
+            # Automatic schema migration for existing databases
+            cur.execute("PRAGMA table_info(certificates)")
+            cols = [col[1] for col in cur.fetchall()]
+            if "request_id" not in cols:
+                cur.execute("ALTER TABLE certificates ADD COLUMN request_id TEXT;")
+
             cur.execute("CREATE INDEX IF NOT EXISTS idx_device_name ON certificates(device_name);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_status ON certificates(status);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_vlan_id ON certificates(vlan_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_request_id ON certificates(request_id);")
             self._conn.commit()
 
     def insert_certificate(
@@ -66,6 +74,7 @@ class CertificateDatabase:
         issued_at: int,
         expires_at: int,
         opnsense_uuid: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         with self._lock:
             cur = self._conn.cursor()
@@ -73,8 +82,8 @@ class CertificateDatabase:
                 """
                 INSERT INTO certificates (
                     serial_number, device_name, platform, vlan_id, vlan_label,
-                    client_ip, cert_pem, issued_at, expires_at, status, opnsense_uuid
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+                    client_ip, cert_pem, issued_at, expires_at, status, opnsense_uuid, request_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
                 ON CONFLICT(serial_number) DO UPDATE SET
                     device_name=excluded.device_name,
                     platform=excluded.platform,
@@ -85,7 +94,8 @@ class CertificateDatabase:
                     issued_at=excluded.issued_at,
                     expires_at=excluded.expires_at,
                     status='ACTIVE',
-                    opnsense_uuid=excluded.opnsense_uuid;
+                    opnsense_uuid=excluded.opnsense_uuid,
+                    request_id=COALESCE(excluded.request_id, certificates.request_id);
                 """,
                 (
                     serial_number,
@@ -98,6 +108,7 @@ class CertificateDatabase:
                     issued_at,
                     expires_at,
                     opnsense_uuid,
+                    request_id,
                 ),
             )
             self._conn.commit()
@@ -130,9 +141,9 @@ class CertificateDatabase:
                 params.append(vlan_id)
 
             if search:
-                query += " AND (device_name LIKE ? OR serial_number LIKE ? OR client_ip LIKE ?)"
+                query += " AND (device_name LIKE ? OR serial_number LIKE ? OR client_ip LIKE ? OR request_id LIKE ?)"
                 like_term = f"%{search}%"
-                params.extend([like_term, like_term, like_term])
+                params.extend([like_term, like_term, like_term, like_term])
 
             query += " ORDER BY issued_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
@@ -141,6 +152,27 @@ class CertificateDatabase:
             cur.execute(query, params)
             rows = cur.fetchall()
             return [dict(r) for r in rows]
+
+    def device_name_exists(self, device_name: str) -> bool:
+        """Checks if an active certificate exists for the given device name."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM certificates WHERE device_name = ? AND status = 'ACTIVE' LIMIT 1",
+                (device_name,),
+            )
+            return cur.fetchone() is not None
+
+    def get_certificate_by_device_name(self, device_name: str) -> Optional[dict[str, Any]]:
+        """Retrieves the latest active certificate for a device name."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM certificates WHERE device_name = ? AND status = 'ACTIVE' ORDER BY issued_at DESC LIMIT 1",
+                (device_name,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def update_certificate_vlan(
         self,
