@@ -297,8 +297,10 @@ class SlackEnrollmentHandler:
             ack()
             request_id = body["actions"][0]["value"]
             user_name = body.get("user", {}).get("username", "Admin")
+            logger.info(f"Received 'quick_approve' button click from @{user_name} for request {request_id}")
             record = self.state_manager.get_request(request_id)
             if not record or record.status != EnrollmentStatus.PENDING:
+                logger.warning(f"Request {request_id} is no longer pending (status: {record.status if record else 'not found'})")
                 return
 
             try:
@@ -319,8 +321,11 @@ class SlackEnrollmentHandler:
         def handle_open_modal(ack, body):
             ack()
             request_id = body["actions"][0]["value"]
+            user_name = body.get("user", {}).get("username", "Admin")
+            logger.info(f"Received 'open_edit_modal' button click from @{user_name} for request {request_id}")
             record = self.state_manager.get_request(request_id)
             if not record or record.status != EnrollmentStatus.PENDING:
+                logger.warning(f"Request {request_id} is no longer pending (status: {record.status if record else 'not found'})")
                 return
 
             modal = self.build_edit_modal(record)
@@ -334,6 +339,7 @@ class SlackEnrollmentHandler:
             metadata = json.loads(view.get("private_metadata", "{}"))
             request_id = metadata.get("request_id")
             values = view.get("state", {}).get("values", {})
+            user_name = body.get("user", {}).get("username", "Admin")
 
             device_name = values["device_name_block"]["device_name_input"]["value"]
             vlan_str = values["vlan_block"]["vlan_select"]["selected_option"]["value"]
@@ -342,9 +348,12 @@ class SlackEnrollmentHandler:
             overwrite_opts = values.get("overwrite_block", {}).get("overwrite_checkbox", {}).get("selected_options", [])
             allow_overwrite = any(opt.get("value") == "overwrite" for opt in overwrite_opts)
 
+            logger.info(f"Received modal submission for {request_id} from @{user_name}: device='{device_name}', vlan={vlan.value}, overwrite={allow_overwrite}")
+
             # Validate input and duplicates
             errors = self.validate_modal_submission(device_name, allow_overwrite)
             if errors:
+                logger.warning(f"Validation failed for modal submission: {errors}")
                 ack(response_action="errors", errors=errors)
                 return
 
@@ -353,7 +362,6 @@ class SlackEnrollmentHandler:
 
             # Process approval
             sanitized_name = sanitize_device_name(device_name)
-            user_name = body.get("user", {}).get("username", "Admin")
             record = self.state_manager.get_request(request_id)
             if record and record.status == EnrollmentStatus.PENDING:
                 try:
@@ -372,6 +380,7 @@ class SlackEnrollmentHandler:
             ack()
             request_id = body["actions"][0]["value"]
             user_name = body.get("user", {}).get("username", "Admin")
+            logger.info(f"Received 'reject_request' button click from @{user_name} for request {request_id}")
             record = self.state_manager.get_request(request_id)
             if not record or record.status != EnrollmentStatus.PENDING:
                 return

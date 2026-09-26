@@ -23,7 +23,11 @@ from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
 from services.wifi_enrollment.state_manager import StateManager
 from services.wifi_enrollment.step_client import StepCaClient
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("wifi_enrollment")
 
 
 class SlidingWindowRateLimiter:
@@ -81,8 +85,18 @@ def create_app(
         # Startup: optionally start Slack Socket Mode handler in background thread
         socket_handler = getattr(app.state, "socket_mode_handler", None)
         if socket_handler:
-            logger.info("Starting Slack Socket Mode background thread...")
-            threading.Thread(target=socket_handler.start, daemon=True).start()
+            def run_socket_mode():
+                try:
+                    logger.info("Connecting to Slack Socket Mode WebSocket...")
+                    socket_handler.start()
+                except Exception as e:
+                    logger.error(f"FATAL: Slack Socket Mode connection failed or crashed: {e}", exc_info=True)
+
+            t = threading.Thread(target=run_socket_mode, name="slack-socket-mode", daemon=True)
+            t.start()
+            logger.info("Slack Socket Mode listener thread initialized.")
+        else:
+            logger.warning("No socket_mode_handler registered on app.state! Slack interactive events will not be received.")
         yield
 
     app = FastAPI(
@@ -222,6 +236,10 @@ def init_production_app() -> FastAPI:
     socket_mode_handler = None
 
     if settings.SLACK_BOT_TOKEN and settings.SLACK_APP_TOKEN:
+        logger.info(
+            f"Configuring Slack Bot token ({settings.SLACK_BOT_TOKEN[:9]}...) "
+            f"and Socket Mode token ({settings.SLACK_APP_TOKEN[:9]}...) for channel {settings.SLACK_CHANNEL_ID}"
+        )
         bolt_app = App(token=settings.SLACK_BOT_TOKEN)
         slack_handler = SlackEnrollmentHandler(
             app=bolt_app,
@@ -233,6 +251,10 @@ def init_production_app() -> FastAPI:
         socket_mode_handler = SocketModeHandler(
             app=bolt_app,
             app_token=settings.SLACK_APP_TOKEN,
+        )
+    else:
+        logger.warning(
+            "SLACK_BOT_TOKEN and/or SLACK_APP_TOKEN are not set! Slack integration and Socket Mode are DISABLED."
         )
 
     app = create_app(state_manager=sm, slack_handler=slack_handler)
