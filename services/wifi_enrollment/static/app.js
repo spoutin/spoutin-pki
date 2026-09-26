@@ -139,11 +139,43 @@
   function startPolling(requestId) {
     if (pollInterval) clearInterval(pollInterval);
 
+    let pollAttempts = 0;
+    let consecutiveErrors = 0;
+    const MAX_POLL_ATTEMPTS = 450; // 15 minutes at 2s interval
+
     pollInterval = setInterval(async () => {
+      pollAttempts++;
+      if (pollAttempts > MAX_POLL_ATTEMPTS) {
+        clearInterval(pollInterval);
+        rejectTitle.textContent = "Request Timed Out";
+        rejectReason.textContent = "Your request timed out waiting for administrator review. Please try again.";
+        showView(rejectedView);
+        return;
+      }
+
       try {
         const resp = await fetch(`/api/status/${requestId}`);
-        if (!resp.ok) return;
 
+        if (resp.status === 404 || resp.status === 410) {
+          clearInterval(pollInterval);
+          rejectTitle.textContent = "Request Not Found";
+          rejectReason.textContent = "Your enrollment request was not found or has expired.";
+          showView(rejectedView);
+          return;
+        }
+
+        if (!resp.ok) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 5) {
+            clearInterval(pollInterval);
+            rejectTitle.textContent = "Connection Error";
+            rejectReason.textContent = "Lost connection to the enrollment server while waiting for status.";
+            showView(rejectedView);
+          }
+          return;
+        }
+
+        consecutiveErrors = 0;
         const data = await resp.json();
 
         if (data.status === "approved") {
@@ -190,6 +222,13 @@
         }
       } catch (err) {
         console.error("Polling error:", err);
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) {
+          clearInterval(pollInterval);
+          rejectTitle.textContent = "Network Error";
+          rejectReason.textContent = "Unable to reach the enrollment server. Please check your network connection.";
+          showView(rejectedView);
+        }
       }
     }, 2000);
   }

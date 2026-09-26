@@ -140,6 +140,11 @@ def create_app(
                 handler.post_enrollment_card(record)
             except Exception as e:
                 logger.error(f"Failed to post Slack notification: {e}", exc_info=True)
+                sm.reject_request(record.request_id, reason=f"Failed to notify administrator via Slack: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to notify administrator via Slack: {e}. Please contact your network administrator.",
+                )
 
         return {
             "request_id": record.request_id,

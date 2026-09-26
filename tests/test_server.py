@@ -34,6 +34,23 @@ def test_submit_request_success(test_app):
     slack.post_enrollment_card.assert_called_once()
 
 
+def test_submit_request_slack_failure(test_app):
+    client, sm, slack = test_app
+    slack.post_enrollment_card.side_effect = Exception("channel_not_found")
+
+    resp = client.post(
+        "/api/request",
+        json={"device_name": "device-fail", "platform": "android"},
+    )
+    assert resp.status_code == 502
+    assert "channel_not_found" in resp.json().get("detail", "")
+
+    # Ensure no pending request remains
+    assert len(sm._requests) == 1
+    rec = list(sm._requests.values())[0]
+    assert rec.status.value == "rejected"
+
+
 def test_submit_request_validation_error(test_app):
     client, _, _ = test_app
     resp = client.post(
