@@ -175,10 +175,38 @@ def test_admin_revocation_user_and_cert(admin_test_app):
 
 
 def test_public_crl_route(admin_test_app):
+    import hashlib
+
     client, _, _, step_client, _, _ = admin_test_app
+    step_client.get_crl.return_value = b"DUMMY_CRL_BYTES"
+
+    # Initial GET /crl
     resp = client.get("/crl")
     assert resp.status_code == 200
     assert resp.content == b"DUMMY_CRL_BYTES"
+    assert "etag" in resp.headers
+    etag = resp.headers["etag"]
+    expected_etag = f'"{hashlib.sha256(b"DUMMY_CRL_BYTES").hexdigest()}"'
+    assert etag == expected_etag
+    assert resp.headers["content-type"] == "application/x-pkcs7-crl"
+    step_client.get_crl.assert_called_with(as_pem=False)
+
+    # Initial GET /crl.pem
+    resp_pem = client.get("/crl.pem")
+    assert resp_pem.status_code == 200
+    assert resp_pem.headers["content-type"] == "application/x-pem-file"
+    step_client.get_crl.assert_called_with(as_pem=True)
+
+    # Conditional GET with matching If-None-Match -> 304 Not Modified
+    resp_304 = client.get("/crl.pem", headers={"If-None-Match": etag})
+    assert resp_304.status_code == 304
+    assert resp_304.content == b""
+    assert resp_304.headers["etag"] == etag
+
+    # Conditional GET with outdated If-None-Match -> 200 OK
+    resp_updated = client.get("/crl.pem", headers={"If-None-Match": '"outdated-hash"'})
+    assert resp_updated.status_code == 200
+    assert resp_updated.content == b"DUMMY_CRL_BYTES"
 
 
 def test_admin_html_pages(admin_test_app):

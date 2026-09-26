@@ -417,10 +417,11 @@ class StepCaClient:
         data = resp.json()
         return data.get("status") == "ok" or resp.status_code == 200
 
-    def get_crl(self) -> bytes:
+    def get_crl(self, as_pem: bool = False) -> bytes:
         """Fetches the latest Certificate Revocation List (CRL) from step-ca."""
         endpoint = f"{self.ca_url}/crl"
-        resp = self.session.get(endpoint, verify=self.verify_ssl, timeout=10)
+        params = {"pem": ""} if as_pem else None
+        resp = self.session.get(endpoint, params=params, verify=self.verify_ssl, timeout=10)
         resp.raise_for_status()
         return resp.content
 

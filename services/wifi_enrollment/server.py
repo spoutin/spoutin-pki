@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import secrets
@@ -196,7 +197,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.4",
+        version="0.2.5",
         lifespan=lifespan,
     )
 
@@ -259,14 +260,35 @@ def create_app(
 
     @app.get("/crl")
     @app.get("/crl.pem")
-    def get_crl_endpoint():
+    def get_crl_endpoint(request: Request):
         """Public endpoint serving the latest Certificate Revocation List (CRL) for FreeRADIUS."""
         client: Optional[StepCaClient] = app.state.step_client
         if not client:
             raise HTTPException(status_code=503, detail="step-ca client is not initialized.")
         try:
-            crl_bytes = client.get_crl()
-            return Response(content=crl_bytes, media_type="application/x-pkcs7-crl")
+            is_pem = request.url.path.endswith(".pem")
+            crl_bytes = client.get_crl(as_pem=is_pem)
+
+            # Generate ETag based on SHA-256 of the CRL payload
+            etag = f'"{hashlib.sha256(crl_bytes).hexdigest()}"'
+            if_none_match = request.headers.get("if-none-match")
+
+            # Check for conditional GET
+            if if_none_match and if_none_match.strip() == etag:
+                return Response(
+                    status_code=304,
+                    headers={
+                        "ETag": etag,
+                        "Cache-Control": "public, no-cache",
+                    },
+                )
+
+            media_type = "application/x-pem-file" if is_pem else "application/x-pkcs7-crl"
+            headers = {
+                "ETag": etag,
+                "Cache-Control": "public, no-cache",
+            }
+            return Response(content=crl_bytes, media_type=media_type, headers=headers)
         except Exception as e:
             logger.error(f"Failed to fetch CRL from step-ca: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Failed to retrieve CRL: {e}")

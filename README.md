@@ -88,7 +88,7 @@ The GitHub Actions workflow builds a unified `.deb` package containing the custo
 1. **Download the latest `.deb` package** from your repository's [GitHub Releases](https://github.com/spoutin/spoutin-pki/releases).
 2. **Install on the `step-ca` LXC:**
    ```bash
-   dpkg -i wifi-enrollment_0.2.4_amd64.deb
+   dpkg -i wifi-enrollment_0.2.5_amd64.deb
    ```
    *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and configures systemd.*
 
@@ -310,13 +310,26 @@ Click the red **Revoke** button next to any active certificate to open the revoc
 
 *(Note: Per design, revocations update the database and dashboard silently without posting noisy alerts to Slack).*
 
-#### Public CRL Distribution
-The service and reverse proxy expose the `step-ca` CRL publicly on your internal domain:
+#### Public CRL Distribution & FreeRADIUS Synchronization
+The service and reverse proxy expose the `step-ca` CRL publicly on your internal domain with HTTP `ETag` and `304 Not Modified` conditional request support:
+* **`https://wifi.int.spoutin.org/crl.pem`** (PEM format, with ETag caching)
 * **`https://wifi.int.spoutin.org/crl`** (DER / raw format)
-* **`https://wifi.int.spoutin.org/crl.pem`** (PEM formatted CRL)
 
-To verify the CRL or inspect revoked serial numbers:
+To inspect the CRL or view revoked serial numbers:
 ```bash
 curl -s https://wifi.int.spoutin.org/crl.pem | openssl crl -text -noout
 ```
+
+##### Automated OPNsense FreeRADIUS Sync
+To enable automatic, zero-disk-wear CRL synchronization on your OPNsense firewall:
+
+1. **Enable CRL Checking in OPNsense FreeRADIUS:**
+   * Import the initial CRL from `https://wifi.int.spoutin.org/crl.pem` into **System → Trust → Revocation**.
+   * In **Services → FreeRADIUS → EAP**, select that CRL under **Certificate Revocation List** and click **Save & Apply** (this activates `check_crl = yes` in FreeRADIUS).
+2. **Deploy the Sync Script:**
+   * Copy `scripts/sync-freeradius-crl.sh` to `/usr/local/bin/sync-wifi-crl.sh` on your OPNsense firewall.
+   * Make it executable: `chmod +x /usr/local/bin/sync-wifi-crl.sh`.
+3. **Add a Cron Job on OPNsense:**
+   * In **System → Settings → Cron**, add a job to run `/usr/local/bin/sync-wifi-crl.sh` every 5 to 15 minutes.
+   * *Zero Flash Wear:* The script uses `curl --etag-compare` in `/tmp` (RAM). When the CRL has not changed, the server responds with `304 Not Modified`, skipping disk writes and service reloads entirely. FreeRADIUS is only reloaded when a new certificate revocation is detected.
 

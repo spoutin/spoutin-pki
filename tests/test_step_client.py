@@ -253,4 +253,9 @@ def test_get_crl_success(mock_get):
     client = StepCaClient(ca_url="https://127.0.0.1:9000")
     crl_bytes = client.get_crl()
     assert crl_bytes == b"-----BEGIN X509 CRL-----\nDUMMY_CRL\n-----END X509 CRL-----"
+    mock_get.assert_called_with("https://127.0.0.1:9000/crl", params=None, verify=False, timeout=10)
+
+    # Test as_pem=True
+    client.get_crl(as_pem=True)
+    mock_get.assert_called_with("https://127.0.0.1:9000/crl", params={"pem": ""}, verify=False, timeout=10)
 
