@@ -200,6 +200,36 @@ def test_admin_revocation_user_and_cert(admin_test_app):
     assert cert["revocation_scope"] == "USER_AND_CERT"
 
 
+def test_admin_revocation_default_scope(admin_test_app):
+    client, sm, db, step_client, radius_client, _ = admin_test_app
+
+    db.insert_certificate(
+        serial_number="88888",
+        device_name="device-default-revoke",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.8",
+        cert_pem="DUMMY_PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+
+    # Calling revoke with empty body or only reason defaults to USER_AND_CERT
+    resp = client.post(
+        "/api/admin/certificates/88888/revoke",
+        json={},
+    )
+    assert resp.status_code == 200
+
+    step_client.revoke_certificate.assert_called_once_with("88888", reason="cessationOfOperation")
+    radius_client.delete_user.assert_called_once_with("device-default-revoke")
+
+    cert = db.get_certificate("88888")
+    assert cert["status"] == "REVOKED"
+    assert cert["revocation_scope"] == "USER_AND_CERT"
+
+
 def test_public_crl_route(admin_test_app):
     import hashlib
 

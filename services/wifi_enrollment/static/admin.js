@@ -328,7 +328,7 @@
           ? `<span style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">req: ${escapeHtml(c.request_id)}</span>`
           : "";
 
-        const pinHtml = c.pin
+        const pinHtml = (!isRevoked && c.pin)
           ? `<button class="badge-pin" data-action="copy-pin" data-pin="${escapeHtml(c.pin)}" title="Click to copy Import PIN">PIN: <strong>${escapeHtml(c.pin)}</strong></button>`
           : "";
 
@@ -472,6 +472,8 @@
       activeRevokeSerial = btn.dataset.serial;
       revokeSerial.textContent = activeRevokeSerial;
       revokeDeviceName.textContent = btn.dataset.name;
+      const defaultRadio = document.querySelector('input[name="revoke_scope"][value="USER_AND_CERT"]');
+      if (defaultRadio) defaultRadio.checked = true;
       revokeModal.classList.remove("hidden");
     }
   });
@@ -569,7 +571,7 @@
   revokeConfirmBtn.addEventListener("click", async () => {
     if (!activeRevokeSerial) return;
     const scopeRadio = document.querySelector('input[name="revoke_scope"]:checked');
-    const scope = scopeRadio ? scopeRadio.value : "CERT_ONLY";
+    const scope = scopeRadio ? scopeRadio.value : "USER_AND_CERT";
     const reason = revokeReasonSelect.value;
     setButtonLoading(revokeConfirmBtn, "Revoking...");
     revokeCancelBtn.disabled = true;

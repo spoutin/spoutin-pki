@@ -182,17 +182,17 @@
           <label>Revocation Scope</label>
           <div class="radio-group">
             <label class="radio-card">
-              <input type="radio" name="revoke_scope" value="CERT_ONLY" checked>
-              <div>
-                <strong>Revoke Certificate Only (CRL)</strong>
-                <div class="radio-desc">Adds certificate to step-ca's Revocation List (CRL). Keeps user in FreeRADIUS.</div>
-              </div>
-            </label>
-            <label class="radio-card">
-              <input type="radio" name="revoke_scope" value="USER_AND_CERT">
+              <input type="radio" name="revoke_scope" value="USER_AND_CERT" checked>
               <div>
                 <strong>Revoke Certificate & Delete FreeRADIUS User</strong>
                 <div class="radio-desc">Adds certificate to step-ca CRL AND removes user from FreeRADIUS authorization.</div>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="revoke_scope" value="CERT_ONLY">
+              <div>
+                <strong>Revoke Certificate Only (CRL)</strong>
+                <div class="radio-desc">Adds certificate to step-ca's Revocation List (CRL). Keeps user in FreeRADIUS.</div>
               </div>
             </label>
           </div>

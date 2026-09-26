@@ -95,7 +95,7 @@ class RejectRequestBody(BaseModel):
 
 class RevokeRequestBody(BaseModel):
     reason: str = "cessationOfOperation"
-    scope: str = "CERT_ONLY"  # "CERT_ONLY" or "USER_AND_CERT"
+    scope: str = "USER_AND_CERT"  # "CERT_ONLY" or "USER_AND_CERT"
 
 
 class UpdateVlanRequestBody(BaseModel):
@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.10",
+        version="0.2.11",
         lifespan=lifespan,
     )
 
