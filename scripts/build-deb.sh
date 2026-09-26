@@ -48,6 +48,7 @@ echo "Staging wifi-enrollment application files..."
 cp -r "${REPO_ROOT}/services" "${STAGING_DIR}/opt/wifi-enrollment/"
 cp "${REPO_ROOT}/pyproject.toml" "${STAGING_DIR}/opt/wifi-enrollment/"
 cp "${REPO_ROOT}/uv.lock" "${STAGING_DIR}/opt/wifi-enrollment/"
+cp "${REPO_ROOT}/README.md" "${STAGING_DIR}/opt/wifi-enrollment/"
 cp "${REPO_ROOT}/.env.example" "${STAGING_DIR}/opt/wifi-enrollment/"
 
 # 4. Add systemd units & configuration

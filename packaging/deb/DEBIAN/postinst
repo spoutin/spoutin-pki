@@ -41,6 +41,7 @@ UV_BIN=$(command -v uv || echo "/usr/local/bin/uv")
 # Sync Python virtual environment in /opt/wifi-enrollment
 echo "Syncing Python dependencies for wifi-enrollment..."
 cd /opt/wifi-enrollment
+touch README.md
 "$UV_BIN" sync --frozen --no-dev || "$UV_BIN" sync --no-dev
 
 # Reload systemd
