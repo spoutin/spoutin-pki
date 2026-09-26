@@ -317,6 +317,106 @@ class StepCaClient:
 
         return leaf_pem, chain_list
 
+    def generate_revocation_token(self, serial_number: str) -> str:
+        """Generates a signed ES256 JWT one-time token (OTT) for certificate revocation."""
+        private_key, kid = self.get_provisioner_key()
+
+        parsed = urllib.parse.urlparse(self.ca_url)
+        ca_host = parsed.hostname or "127.0.0.1"
+
+        audiences = [
+            "step-certificate-authority",
+            f"https://step-ca.{self.domain}/1.0/revoke",
+            f"https://{self.domain}/1.0/revoke",
+            "https://step-ca/1.0/revoke",
+            "https://localhost/1.0/revoke",
+        ]
+        if ca_host not in ("step-ca", "localhost"):
+            audiences.append(f"https://{ca_host}/1.0/revoke")
+        audiences.append(f"{self.ca_url}/1.0/revoke")
+
+        clean_audiences = []
+        seen = set()
+        for a in audiences:
+            if a not in seen:
+                seen.add(a)
+                clean_audiences.append(a)
+
+        now = int(time.time())
+        header = {
+            "alg": "ES256",
+            "kid": kid,
+            "typ": "JWT",
+        }
+        payload = {
+            "aud": clean_audiences,
+            "exp": now + 300,
+            "iat": now,
+            "iss": self.provisioner_name,
+            "jti": str(uuid.uuid4()),
+            "nbf": now,
+            "sha": self.get_root_fingerprint(),
+            "sub": str(serial_number),
+        }
+
+        header_b64 = base64url_encode(json.dumps(header, separators=(",", ":")))
+        payload_b64 = base64url_encode(json.dumps(payload, separators=(",", ":")))
+        signing_input = f"{header_b64}.{payload_b64}"
+
+        der_signature = private_key.sign(
+            signing_input.encode("ascii"),
+            ec.ECDSA(hashes.SHA256()),
+        )
+        r, s = decode_dss_signature(der_signature)
+        raw_signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        sig_b64 = base64url_encode(raw_signature)
+
+        return f"{signing_input}.{sig_b64}"
+
+    def revoke_certificate(
+        self,
+        serial_number: str,
+        reason: str = "cessationOfOperation",
+        reason_code: int = 5,
+    ) -> bool:
+        """Revokes a certificate in step-ca by serial number via REST API."""
+        token = self.generate_revocation_token(serial_number)
+        endpoint = f"{self.ca_url}/1.0/revoke"
+        payload = {
+            "serial": str(serial_number),
+            "reason": reason,
+            "reasonCode": reason_code,
+            "ott": token,
+        }
+
+        resp = self.session.post(
+            endpoint,
+            json=payload,
+            verify=self.verify_ssl,
+            timeout=10,
+        )
+
+        if not resp.ok:
+            error_detail = resp.text
+            try:
+                err_json = resp.json()
+                error_detail = err_json.get("message") or err_json.get("detail") or json.dumps(err_json)
+            except Exception:
+                pass
+            msg = f"step-ca revoke failed (HTTP {resp.status_code}): {error_detail}"
+            logger.error(msg)
+            raise RuntimeError(msg)
+
+        data = resp.json()
+        return data.get("status") == "ok" or resp.status_code == 200
+
+    def get_crl(self) -> bytes:
+        """Fetches the latest Certificate Revocation List (CRL) from step-ca."""
+        endpoint = f"{self.ca_url}/crl"
+        resp = self.session.get(endpoint, verify=self.verify_ssl, timeout=10)
+        resp.raise_for_status()
+        return resp.content
+
     def build_p12_bundle(
         self,
         private_key: rsa.RSAPrivateKey,

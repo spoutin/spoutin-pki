@@ -179,3 +179,77 @@ def test_decrypt_jwe_key():
 
     recovered_key = decrypt_jwe_key(jwe, password)
     assert recovered_key.private_numbers().private_value == priv_key.private_numbers().private_value
+
+
+def test_generate_revocation_token():
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from services.wifi_enrollment.step_client import base64url_decode
+    import json
+
+    ec_key = ec.generate_private_key(ec.SECP256R1())
+    client = StepCaClient(
+        ca_url="https://127.0.0.1:9000",
+        domain="int.spoutin.org",
+        provisioner_name="admin@int.spoutin.org",
+        provisioner_private_key=ec_key,
+        provisioner_kid="test-kid-12345",
+    )
+
+    token = client.generate_revocation_token("998877665544")
+    assert token is not None
+
+    parts = token.split(".")
+    header = json.loads(base64url_decode(parts[0]))
+    payload = json.loads(base64url_decode(parts[1]))
+
+    assert header["alg"] == "ES256"
+    assert payload["sub"] == "998877665544"
+    assert "step-certificate-authority" in payload["aud"]
+    assert any("revoke" in a for a in payload["aud"])
+
+
+@patch("requests.Session.post")
+def test_revoke_certificate_success(mock_post):
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.ok = True
+    mock_resp.json.return_value = {"status": "ok"}
+    mock_post.return_value = mock_resp
+
+    ec_key = ec.generate_private_key(ec.SECP256R1())
+    client = StepCaClient(
+        ca_url="https://127.0.0.1:9000",
+        provisioner_private_key=ec_key,
+        provisioner_kid="test-kid-12345",
+    )
+
+    result = client.revoke_certificate(
+        serial_number="998877665544",
+        reason="keyCompromise",
+        reason_code=1,
+    )
+    assert result is True
+
+    call_args = mock_post.call_args
+    assert "/1.0/revoke" in call_args.args[0]
+    payload = call_args.kwargs["json"]
+    assert payload["serial"] == "998877665544"
+    assert payload["reason"] == "keyCompromise"
+    assert payload["reasonCode"] == 1
+    assert "ott" in payload
+
+
+@patch("requests.Session.get")
+def test_get_crl_success(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.ok = True
+    mock_resp.content = b"-----BEGIN X509 CRL-----\nDUMMY_CRL\n-----END X509 CRL-----"
+    mock_get.return_value = mock_resp
+
+    client = StepCaClient(ca_url="https://127.0.0.1:9000")
+    crl_bytes = client.get_crl()
+    assert crl_bytes == b"-----BEGIN X509 CRL-----\nDUMMY_CRL\n-----END X509 CRL-----"
+
