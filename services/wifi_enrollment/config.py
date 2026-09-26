@@ -38,10 +38,15 @@ class Settings(BaseSettings):
     OPNSENSE_API_SECRET: str = ""
     OPNSENSE_VERIFY_SSL: bool = False
 
-    # Slack App (Socket Mode)
+    # Slack App (Socket Mode & OAuth)
     SLACK_BOT_TOKEN: str = ""
     SLACK_APP_TOKEN: str = ""
     SLACK_CHANNEL_ID: str = ""
+    SLACK_CLIENT_ID: str = ""
+    SLACK_CLIENT_SECRET: str = ""
+    ADMIN_SLACK_EMAILS: str = "adam@spoutin.org"
+    SESSION_SECRET_KEY: str = "spoutin-pki-secret-key-change-me"
+    DATABASE_PATH: str = "/opt/wifi-enrollment/data/inventory.db"
 
 
 # Global singleton settings instance
