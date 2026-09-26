@@ -17,7 +17,7 @@ if ! getent passwd caddy >/dev/null 2>&1; then
 fi
 
 # Directory setup and permissions
-mkdir -p /var/log/caddy /var/lib/caddy /etc/caddy /etc/wifi-enrollment /etc/systemd/system/caddy.service.d
+mkdir -p /var/log/caddy /var/lib/caddy /etc/caddy /etc/wifi-enrollment /etc/systemd/system/caddy.service.d /opt/wifi-enrollment/data
 chown -R caddy:caddy /var/log/caddy /var/lib/caddy /etc/caddy
 
 # Set up .env configuration

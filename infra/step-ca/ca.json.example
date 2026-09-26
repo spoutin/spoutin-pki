@@ -18,6 +18,11 @@
     "dataSource": "/etc/step-ca/db",
     "badgerFileLoadingMode": ""
   },
+  "crl": {
+    "enabled": true,
+    "generateOnRevoke": true,
+    "cacheDuration": "24h"
+  },
   "authority": {
     "claims": {
       "minTLSCertDuration": "5m",

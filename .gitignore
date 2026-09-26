@@ -33,6 +33,8 @@ htmlcov/
 
 # Secrets & Environment
 .env
+data/
+*.db
 *.pem
 *.p12
 *.pfx

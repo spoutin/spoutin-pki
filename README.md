@@ -47,9 +47,15 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 4. Under **Features → OAuth & Permissions**:
    * Add the following **Bot Token Scopes**:
      * `chat:write` (to post and update interactive approval cards)
-   * Click **Install to Workspace**.
+   * Under **User Token Scopes** (for Admin Web Dashboard login):
+     * `openid`, `email`, `profile`
+   * Under **Redirect URLs**:
+     * Add `https://wifi.int.spoutin.org/admin/auth/callback`
+   * Click **Install to Workspace** (or **Reinstall to Workspace**).
    * Copy the Bot User OAuth Token starting with `xoxb-...` (this is `SLACK_BOT_TOKEN`).
-5. In your Slack client:
+5. Under **Settings → Basic Information**:
+   * Copy **Client ID** (`SLACK_CLIENT_ID`) and **Client Secret** (`SLACK_CLIENT_SECRET`).
+6. In your Slack client:
    * Create or open your private admin notifications channel (e.g., `#wifi-approvals`).
    * Invite the bot: `/invite @WiFi Enrollment Bot`.
    * Copy the **Channel ID** (Right-click channel name → View channel details → Channel ID at the bottom; e.g., `C0123456789`). This is `SLACK_CHANNEL_ID`.
