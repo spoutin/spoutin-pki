@@ -23,8 +23,10 @@ class Settings(BaseSettings):
 
     # step-ca REST API
     STEP_CA_URL: str = "https://127.0.0.1:9000"
+    STEP_CA_CONFIG_PATH: str = "/etc/step-ca/config/ca.json"
     STEP_CA_PROVISIONER_NAME: str = "admin@int.spoutin.org"
     STEP_CA_PROVISIONER_KEY_PATH: str = "/etc/step-ca/secrets/provisioner_key.json"
+    STEP_CA_PASSWORD_FILE: str = "/etc/step-ca/password.txt"
     STEP_CA_PROVISIONER_PASSWORD: str = ""
     STEP_ROOT_CERT_PATH: str = "/etc/step-ca/certs/root_ca.crt"
     STEP_INTERMEDIATE_CERT_PATH: str = "/etc/step-ca/certs/intermediate_ca.crt"

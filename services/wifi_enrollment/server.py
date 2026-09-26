@@ -219,6 +219,8 @@ def init_production_app() -> FastAPI:
         ca_url=settings.STEP_CA_URL,
         domain=settings.NETWORK_DOMAIN,
         provisioner_name=settings.STEP_CA_PROVISIONER_NAME,
+        ca_config_path=settings.STEP_CA_CONFIG_PATH,
+        password_file=settings.STEP_CA_PASSWORD_FILE,
         provisioner_key_path=settings.STEP_CA_PROVISIONER_KEY_PATH,
         provisioner_password=settings.STEP_CA_PROVISIONER_PASSWORD,
         root_cert_path=settings.STEP_ROOT_CERT_PATH,
