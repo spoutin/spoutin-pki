@@ -178,10 +178,12 @@ def test_request_id_and_device_name_exists(db):
         issued_at=now,
         expires_at=now + 1000,
         request_id="req-test-999",
+        pin="1234",
     )
 
     cert = db.get_certificate("7777")
     assert cert["request_id"] == "req-test-999"
+    assert cert["pin"] == "1234"
 
     # Search by request_id
     res = db.list_certificates(search="req-test-999")

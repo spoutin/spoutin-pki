@@ -44,6 +44,20 @@
     return REVOCATION_REASON_LABELS[reason] || reason;
   }
 
+  function setButtonLoading(btn, text) {
+    if (!btn) return;
+    btn.dataset.originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="btn-spinner"></span>${escapeHtml(text)}`;
+  }
+
+  function restoreButton(btn) {
+    if (!btn || !btn.dataset.originalHtml) return;
+    btn.innerHTML = btn.dataset.originalHtml;
+    delete btn.dataset.originalHtml;
+    btn.disabled = false;
+  }
+
   const modalCancelBtn = document.getElementById("modal-cancel-btn");
   const modalConfirmApproveBtn = document.getElementById("modal-confirm-approve-btn");
   const editApproveWarning = document.getElementById("edit-approve-warning");
@@ -311,7 +325,15 @@
           : (c.serial_number || "");
 
         const reqIdHtml = c.request_id
-          ? `<div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace; margin-top: 2px;">req: ${escapeHtml(c.request_id)}</div>`
+          ? `<span style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">req: ${escapeHtml(c.request_id)}</span>`
+          : "";
+
+        const pinHtml = c.pin
+          ? `<button class="badge-pin" data-action="copy-pin" data-pin="${escapeHtml(c.pin)}" title="Click to copy Import PIN">PIN: <strong>${escapeHtml(c.pin)}</strong></button>`
+          : "";
+
+        const metaLine = (reqIdHtml || pinHtml)
+          ? `<div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 3px; flex-wrap: wrap;">${reqIdHtml}${pinHtml}</div>`
           : "";
 
         const serialCellHtml = `
@@ -334,7 +356,7 @@
              <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
 
         tr.innerHTML = `
-          <td><div><strong>${escapeHtml(c.device_name)}</strong></div>${reqIdHtml}</td>
+          <td><div><strong>${escapeHtml(c.device_name)}</strong></div>${metaLine}</td>
           <td>${escapeHtml(c.platform)}</td>
           <td>${vlanBadgeHtml}</td>
           <td>${serialCellHtml}</td>
@@ -359,7 +381,9 @@
     const name = btn.dataset.name;
 
     if (action === "quick-approve") {
-      btn.disabled = true;
+      const tr = btn.closest("tr");
+      if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      setButtonLoading(btn, "Approving...");
       try {
         const resp = await adminFetch(`/api/admin/requests/${reqId}/approve`, {
           method: "POST",
@@ -371,9 +395,13 @@
         } else {
           const err = await resp.json();
           alert(`Approval failed: ${err.detail || "Server error"}`);
+          restoreButton(btn);
+          if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = false));
         }
-      } finally {
-        btn.disabled = false;
+      } catch (e) {
+        alert(`Network error during approval: ${e.message}`);
+        restoreButton(btn);
+        if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = false));
       }
     } else if (action === "open-modal") {
       activeModalRequestId = reqId;
@@ -383,7 +411,9 @@
       editApproveModal.classList.remove("hidden");
     } else if (action === "reject") {
       if (!confirm(`Are you sure you want to reject request for ${name}?`)) return;
-      btn.disabled = true;
+      const tr = btn.closest("tr");
+      if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      setButtonLoading(btn, "Rejecting...");
       try {
         await adminFetch(`/api/admin/requests/${reqId}/reject`, {
           method: "POST",
@@ -391,18 +421,35 @@
           body: JSON.stringify({ reason: "Rejected by admin from web dashboard" }),
         });
         await refreshAll(true);
-      } finally {
-        btn.disabled = false;
+      } catch (e) {
+        alert(`Network error rejecting request: ${e.message}`);
+        restoreButton(btn);
+        if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = false));
       }
     }
   });
 
   inventoryTbody.addEventListener("click", (e) => {
-    const btn = e.target.closest("button, .badge-vlan.clickable");
+    const btn = e.target.closest("button, .badge-vlan.clickable, .badge-pin");
     if (!btn) return;
     const action = btn.dataset.action;
 
-    if (action === "copy-serial") {
+    if (action === "copy-pin") {
+      const pin = btn.dataset.pin;
+      if (!pin) return;
+      navigator.clipboard.writeText(pin).then(() => {
+        const origHtml = btn.innerHTML;
+        btn.classList.add("copied");
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => {
+          btn.innerHTML = origHtml;
+          btn.classList.remove("copied");
+        }, 1500);
+      }).catch((err) => {
+        console.error("Copy PIN failed:", err);
+      });
+      return;
+    } else if (action === "copy-serial") {
       const serial = btn.dataset.serial;
       if (!serial) return;
       navigator.clipboard.writeText(serial).then(() => {
@@ -453,7 +500,8 @@
     if (!activeModalRequestId) return;
     const newName = editDeviceNameInput.value.trim();
     const vlanId = parseInt(editVlanSelect.value, 10);
-    modalConfirmApproveBtn.disabled = true;
+    setButtonLoading(modalConfirmApproveBtn, "Issuing...");
+    modalCancelBtn.disabled = true;
 
     try {
       const resp = await adminFetch(`/api/admin/requests/${activeModalRequestId}/approve`, {
@@ -462,15 +510,20 @@
         body: JSON.stringify({ approved_name: newName, vlan_id: vlanId }),
       });
       if (resp.ok) {
+        const data = await resp.json();
         editApproveModal.classList.add("hidden");
         activeModalRequestId = null;
         await refreshAll(true);
+        if (data.pin) {
+          alert(`✅ Approved ${newName} (VLAN ${vlanId})!\n\nImport PIN: ${data.pin}\n(Saved to inventory table)`);
+        }
       } else {
         const err = await resp.json();
         alert(`Approval failed: ${err.detail || "Server error"}`);
       }
     } finally {
-      modalConfirmApproveBtn.disabled = false;
+      restoreButton(modalConfirmApproveBtn);
+      modalCancelBtn.disabled = false;
     }
   });
 
@@ -483,7 +536,8 @@
   vlanModalConfirmBtn.addEventListener("click", async () => {
     if (!activeVlanSerial) return;
     const newVlanId = parseInt(vlanModalSelect.value, 10);
-    vlanModalConfirmBtn.disabled = true;
+    setButtonLoading(vlanModalConfirmBtn, "Saving...");
+    vlanModalCancelBtn.disabled = true;
 
     try {
       const resp = await adminFetch(`/api/admin/certificates/${activeVlanSerial}/vlan`, {
@@ -502,7 +556,8 @@
     } catch (e) {
       alert(`Network error updating VLAN: ${e.message}`);
     } finally {
-      vlanModalConfirmBtn.disabled = false;
+      restoreButton(vlanModalConfirmBtn);
+      vlanModalCancelBtn.disabled = false;
     }
   });
 
@@ -516,7 +571,8 @@
     const scopeRadio = document.querySelector('input[name="revoke_scope"]:checked');
     const scope = scopeRadio ? scopeRadio.value : "CERT_ONLY";
     const reason = revokeReasonSelect.value;
-    revokeConfirmBtn.disabled = true;
+    setButtonLoading(revokeConfirmBtn, "Revoking...");
+    revokeCancelBtn.disabled = true;
 
     try {
       const resp = await adminFetch(`/api/admin/certificates/${activeRevokeSerial}/revoke`, {
@@ -532,8 +588,11 @@
         const err = await resp.json();
         alert(`Revocation failed: ${err.detail || "Server error"}`);
       }
+    } catch (e) {
+      alert(`Network error revoking certificate: ${e.message}`);
     } finally {
-      revokeConfirmBtn.disabled = false;
+      restoreButton(revokeConfirmBtn);
+      revokeCancelBtn.disabled = false;
     }
   });
 

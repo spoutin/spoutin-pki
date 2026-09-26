@@ -266,6 +266,9 @@ class SlackEnrollmentHandler:
         )
         self.radius_client.reconfigure_service()
 
+        import secrets
+        pin = f"{secrets.randbelow(10000):04d}"
+
         # 6. Record certificate in persistent SQLite database
         try:
             from cryptography import x509
@@ -286,12 +289,11 @@ class SlackEnrollmentHandler:
                     expires_at=now + 52560 * 3600,
                     opnsense_uuid=opn_uuid,
                     request_id=request_id,
+                    pin=pin,
                 )
         except Exception as e:
             logger.error(f"Failed to record certificate to database: {e}", exc_info=True)
 
-        import secrets
-        pin = f"{secrets.randbelow(10000):04d}"
         p12_bytes = self.step_client.build_p12_bundle(
             private_key=private_key,
             cert_pem=leaf_pem,
@@ -359,8 +361,15 @@ class SlackEnrollmentHandler:
                 logger.warning(f"Request {request_id} is no longer pending (status: {record.status if record else 'not found'})")
                 return
 
+            # Immediate interim acknowledgment to eliminate perceived delay
+            self._update_channel_message(
+                channel=body["channel"]["id"],
+                ts=body["message"]["ts"],
+                text=f"⏳ *Processing approval* for `{record.device_name}` by @{user_name}... Please wait.",
+            )
+
             try:
-                self.process_approval(
+                download_token, pin = self.process_approval(
                     request_id=request_id,
                     approved_name=record.device_name,
                     vlan=VlanOption.SEMI_PRIVATE,
@@ -368,7 +377,7 @@ class SlackEnrollmentHandler:
                 self._update_channel_message(
                     channel=body["channel"]["id"],
                     ts=body["message"]["ts"],
-                    text=f"✅ *Approved* `{record.device_name}` for *VLAN 8 (SemiPrivate)* by @{user_name}",
+                    text=f"✅ *Approved* `{record.device_name}` for *VLAN 8 (SemiPrivate)* by @{user_name} (Import PIN: `{pin}`)",
                 )
             except Exception as e:
                 logger.error(f"Error during quick approve: {e}", exc_info=True)
@@ -432,13 +441,20 @@ class SlackEnrollmentHandler:
             sanitized_name = sanitize_device_name(device_name)
             record = self.state_manager.get_request(request_id)
             if record and record.status == EnrollmentStatus.PENDING:
+                # Immediate interim acknowledgment in channel
+                if record.slack_channel_id and record.slack_message_ts:
+                    self._update_channel_message(
+                        channel=record.slack_channel_id,
+                        ts=record.slack_message_ts,
+                        text=f"⏳ *Processing approval* for `{sanitized_name}` (VLAN {vlan.value}) by @{user_name}... Please wait.",
+                    )
                 try:
-                    self.process_approval(request_id, sanitized_name, vlan)
+                    download_token, pin = self.process_approval(request_id, sanitized_name, vlan)
                     if record.slack_channel_id and record.slack_message_ts:
                         self._update_channel_message(
                             channel=record.slack_channel_id,
                             ts=record.slack_message_ts,
-                            text=f"✅ *Approved* `{sanitized_name}` for *VLAN {vlan.value} ({vlan.label})* by @{user_name}",
+                            text=f"✅ *Approved* `{sanitized_name}` for *VLAN {vlan.value} ({vlan.label})* by @{user_name} (Import PIN: `{pin}`)",
                         )
                 except Exception as e:
                     logger.error(f"Error during modal approval: {e}", exc_info=True)

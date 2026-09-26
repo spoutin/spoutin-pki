@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.7",
+        version="0.2.8",
         lifespan=lifespan,
     )
 
@@ -577,7 +577,7 @@ def create_app(
                 handler._update_channel_message(
                     channel=record.slack_channel_id,
                     ts=record.slack_message_ts,
-                    text=f"✅ *Approved* `{target_name}` for *VLAN {vlan.value} ({vlan.label})* by @{admin.get('name', 'Admin')} via Web Dashboard",
+                    text=f"✅ *Approved* `{target_name}` for *VLAN {vlan.value} ({vlan.label})* by @{admin.get('name', 'Admin')} via Web Dashboard (Import PIN: `{pin}`)",
                 )
 
             return {
