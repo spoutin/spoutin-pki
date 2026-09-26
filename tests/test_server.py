@@ -137,3 +137,14 @@ def test_index_page(test_app):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "Spoutin Wi-Fi Access" in resp.text
+    assert "favicon.svg" in resp.text
+    assert "logo.svg" in resp.text
+
+    # Verify static assets serve properly
+    favicon_resp = client.get("/static/favicon.svg")
+    assert favicon_resp.status_code == 200
+    assert "<svg" in favicon_resp.text
+
+    logo_resp = client.get("/static/logo.svg")
+    assert logo_resp.status_code == 200
+    assert "<svg" in logo_resp.text

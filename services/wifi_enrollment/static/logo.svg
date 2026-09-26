@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="50%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#1e1b4b" />
+    </linearGradient>
+
+    <!-- Whale Fluke Cyber Gradient -->
+    <linearGradient id="fluke-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+
+    <!-- Wi-Fi Spout 1 (Inner Arc) -->
+    <linearGradient id="spout-arc1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+
+    <!-- Wi-Fi Spout 2 (Middle Arc) -->
+    <linearGradient id="spout-arc2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="50%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+
+    <!-- Wi-Fi Spout 3 (Outer Arc) -->
+    <linearGradient id="spout-arc3" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="50%" stop-color="#c084fc" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <!-- Core Glow Filter -->
+    <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="subtle-glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base Container -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg-grad)" stroke="#38bdf8" stroke-opacity="0.25" stroke-width="4" />
+
+  <!-- Ambient Internal Glow -->
+  <circle cx="256" cy="270" r="140" fill="#38bdf8" opacity="0.08" filter="url(#neon-glow)" />
+
+  <!-- ================= SPRAY / WI-FI BROADCAST BEACONS (Rising Upward) ================= -->
+  <!-- Outer Signal / Spout Arc -->
+  <path d="M 126 130 A 180 180 0 0 1 386 130" 
+        fill="none" 
+        stroke="url(#spout-arc3)" 
+        stroke-width="20" 
+        stroke-linecap="round" 
+        filter="url(#subtle-glow)" />
+
+  <!-- Middle Signal / Spout Arc -->
+  <path d="M 166 175 A 125 125 0 0 1 346 175" 
+        fill="none" 
+        stroke="url(#spout-arc2)" 
+        stroke-width="18" 
+        stroke-linecap="round" 
+        filter="url(#subtle-glow)" />
+
+  <!-- Inner Signal / Spout Arc -->
+  <path d="M 206 220 A 70 70 0 0 1 306 220" 
+        fill="none" 
+        stroke="url(#spout-arc1)" 
+        stroke-width="16" 
+        stroke-linecap="round" 
+        filter="url(#neon-glow)" />
+
+  <!-- Geyser Pulse Particles (Rising Data Steam) -->
+  <circle cx="256" cy="75" r="8" fill="#38bdf8" filter="url(#neon-glow)" />
+  <circle cx="215" cy="98" r="5" fill="#818cf8" opacity="0.8" />
+  <circle cx="297" cy="98" r="5" fill="#06b6d4" opacity="0.8" />
+
+  <!-- ================= SPOUTIN TAIL / FLUKE (The Physical Base) ================= -->
+  <!-- Main Fluke Silhouette -->
+  <path d="M 256 320
+           C 220 285, 140 270, 72 295
+           C 62 299, 58 312, 66 320
+           C 100 355, 175 390, 236 445
+           L 276 445
+           C 337 390, 412 355, 446 320
+           C 454 312, 450 299, 440 295
+           C 372 270, 292 285, 256 320 Z"
+        fill="url(#fluke-grad)" 
+        stroke="#60a5fa" 
+        stroke-width="3" 
+        filter="url(#subtle-glow)" />
+
+  <!-- Sculpted Facet & Highlight Lines on Tail -->
+  <path d="M 256 320 C 235 360, 245 405, 256 445" 
+        fill="none" 
+        stroke="#93c5fd" 
+        stroke-width="3" 
+        stroke-opacity="0.4" 
+        stroke-linecap="round" />
+
+  <path d="M 72 295 C 135 315, 200 355, 236 445" 
+        fill="none" 
+        stroke="#bae6fd" 
+        stroke-width="3" 
+        stroke-opacity="0.3" 
+        stroke-linecap="round" />
+
+  <path d="M 440 295 C 377 315, 312 355, 276 445" 
+        fill="none" 
+        stroke="#bae6fd" 
+        stroke-width="3" 
+        stroke-opacity="0.3" 
+        stroke-linecap="round" />
+
+  <!-- ================= CRYPTOGRAPHIC SECURITY CORE (Blowhole Nexus) ================= -->
+  <!-- Central Transmitter Base / Padlock Shackle Accent -->
+  <circle cx="256" cy="275" r="24" fill="#0b0f19" stroke="#38bdf8" stroke-width="6" filter="url(#neon-glow)" />
+  
+  <!-- Glowing Keyhole Core -->
+  <path d="M 256 265 
+           A 6 6 0 0 1 262 271 
+           C 262 273, 260.5 275, 259 276 
+           L 260.5 284 
+           L 251.5 284 
+           L 253 276 
+           C 251.5 275, 250 273, 250 271 
+           A 6 6 0 0 1 256 265 Z" 
+        fill="#38bdf8" />
+</svg>
