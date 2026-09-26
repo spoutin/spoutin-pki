@@ -40,24 +40,53 @@
   const revokeConfirmBtn = document.getElementById("revoke-confirm-btn");
   let activeRevokeSerial = null;
 
+  const btnRefresh = document.getElementById("btn-refresh");
+
+  // Helper for cache-busting fetch
+  async function adminFetch(url, options = {}) {
+    const separator = url.includes("?") ? "&" : "?";
+    const cacheBustedUrl = `${url}${separator}_t=${Date.now()}`;
+    const headers = {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      ...(options.headers || {}),
+    };
+    return fetch(cacheBustedUrl, {
+      ...options,
+      cache: "no-store",
+      headers,
+    });
+  }
+
   // --- Initial Setup ---
   async function init() {
     await fetchProfile();
-    await refreshStats();
-    await refreshRequests();
-    await refreshInventory();
+    await refreshAll(true);
 
-    // Auto-refresh requests every 5s
+    // Auto-refresh requests, inventory, and stats every 3 seconds
     setInterval(async () => {
-      await refreshRequests();
-      await refreshStats();
-    }, 5000);
+      await refreshAll(false);
+    }, 3000);
+  }
+
+  async function refreshAll(forceInventory = false) {
+    try {
+      await Promise.all([
+        refreshStats(),
+        refreshRequests(),
+        (forceInventory || document.activeElement !== inventorySearch)
+          ? refreshInventory()
+          : Promise.resolve(),
+      ]);
+    } catch (e) {
+      console.error("Auto-refresh cycle error", e);
+    }
   }
 
   // --- API Calls ---
   async function fetchProfile() {
     try {
-      const resp = await fetch("/api/admin/me");
+      const resp = await adminFetch("/api/admin/me");
       if (resp.status === 401 || resp.status === 403) {
         window.location.href = "/admin/login";
         return;
@@ -72,7 +101,7 @@
 
   async function refreshStats() {
     try {
-      const resp = await fetch("/api/admin/stats");
+      const resp = await adminFetch("/api/admin/stats");
       if (!resp.ok) return;
       const stats = await resp.json();
       statActiveEl.textContent = stats.active ?? 0;
@@ -94,7 +123,7 @@
 
   async function refreshRequests() {
     try {
-      const resp = await fetch("/api/admin/requests");
+      const resp = await adminFetch("/api/admin/requests");
       if (!resp.ok) return;
       const requests = await resp.json();
       statPendingEl.textContent = requests.length;
@@ -140,7 +169,7 @@
     if (vlan) params.append("vlan_id", vlan);
 
     try {
-      const resp = await fetch(`/api/admin/certificates?${params.toString()}`);
+      const resp = await adminFetch(`/api/admin/certificates?${params.toString()}`);
       if (!resp.ok) return;
       const certs = await resp.json();
 
@@ -160,9 +189,9 @@
 
         const issuedDate = new Date(c.issued_at * 1000).toLocaleDateString();
         const expiresDate = new Date(c.expires_at * 1000).toLocaleDateString();
-        const shortSerial = c.serial_number.length > 16
-          ? `${c.serial_number.slice(0, 8)}...${c.serial_number.slice(-8)}`
-          : c.serial_number;
+        const shortSerial = c.serial_number && String(c.serial_number).length > 16
+          ? `${String(c.serial_number).slice(0, 8)}...${String(c.serial_number).slice(-8)}`
+          : (c.serial_number || "");
 
         const actionHtml = isRevoked
           ? `<span class="hint" style="color: var(--text-muted);">${escapeHtml(c.revocation_reason || "Revoked")}</span>`
@@ -196,15 +225,13 @@
     if (action === "quick-approve") {
       btn.disabled = true;
       try {
-        const resp = await fetch(`/api/admin/requests/${reqId}/approve`, {
+        const resp = await adminFetch(`/api/admin/requests/${reqId}/approve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ approved_name: name, vlan_id: 8 }),
         });
         if (resp.ok) {
-          await refreshRequests();
-          await refreshStats();
-          await refreshInventory();
+          await refreshAll(true);
         } else {
           const err = await resp.json();
           alert(`Approval failed: ${err.detail || "Server error"}`);
@@ -221,13 +248,12 @@
       if (!confirm(`Are you sure you want to reject request for ${name}?`)) return;
       btn.disabled = true;
       try {
-        await fetch(`/api/admin/requests/${reqId}/reject`, {
+        await adminFetch(`/api/admin/requests/${reqId}/reject`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: "Rejected by admin from web dashboard" }),
         });
-        await refreshRequests();
-        await refreshStats();
+        await refreshAll(true);
       } finally {
         btn.disabled = false;
       }
@@ -258,7 +284,7 @@
     modalConfirmApproveBtn.disabled = true;
 
     try {
-      const resp = await fetch(`/api/admin/requests/${activeModalRequestId}/approve`, {
+      const resp = await adminFetch(`/api/admin/requests/${activeModalRequestId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved_name: newName, vlan_id: vlanId }),
@@ -266,9 +292,7 @@
       if (resp.ok) {
         editApproveModal.classList.add("hidden");
         activeModalRequestId = null;
-        await refreshRequests();
-        await refreshStats();
-        await refreshInventory();
+        await refreshAll(true);
       } else {
         const err = await resp.json();
         alert(`Approval failed: ${err.detail || "Server error"}`);
@@ -291,7 +315,7 @@
     revokeConfirmBtn.disabled = true;
 
     try {
-      const resp = await fetch(`/api/admin/certificates/${activeRevokeSerial}/revoke`, {
+      const resp = await adminFetch(`/api/admin/certificates/${activeRevokeSerial}/revoke`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason, scope: scope }),
@@ -299,8 +323,7 @@
       if (resp.ok) {
         revokeModal.classList.add("hidden");
         activeRevokeSerial = null;
-        await refreshInventory();
-        await refreshStats();
+        await refreshAll(true);
       } else {
         const err = await resp.json();
         alert(`Revocation failed: ${err.detail || "Server error"}`);
@@ -325,6 +348,8 @@
     tabBtnInventory.classList.remove("active");
     tabRequestsView.classList.remove("hidden");
     tabInventoryView.classList.add("hidden");
+    refreshRequests();
+    refreshStats();
   });
 
   tabBtnInventory.addEventListener("click", () => {
@@ -333,11 +358,28 @@
     tabInventoryView.classList.remove("hidden");
     tabRequestsView.classList.add("hidden");
     refreshInventory();
+    refreshStats();
   });
+
+  // --- Manual Refresh Button ---
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", async () => {
+      btnRefresh.classList.add("spinning");
+      btnRefresh.disabled = true;
+      try {
+        await refreshAll(true);
+      } finally {
+        setTimeout(() => {
+          btnRefresh.classList.remove("spinning");
+          btnRefresh.disabled = false;
+        }, 400);
+      }
+    });
+  }
 
   // --- Logout ---
   logoutBtn.addEventListener("click", async () => {
-    await fetch("/admin/auth/logout", { method: "POST" });
+    await adminFetch("/admin/auth/logout", { method: "POST" });
     window.location.href = "/admin/login";
   });
 

@@ -62,13 +62,20 @@ def test_admin_stats_and_requests(admin_test_app):
 
     reqs_resp = client.get("/api/admin/requests")
     assert reqs_resp.status_code == 200
+    assert reqs_resp.headers.get("Cache-Control") == "no-store, no-cache, must-revalidate, max-age=0"
+    assert reqs_resp.headers.get("Pragma") == "no-cache"
     reqs = reqs_resp.json()
     assert len(reqs) == 1
     assert reqs[0]["device_name"] == "dev-test"
 
     stats_resp = client.get("/api/admin/stats")
     assert stats_resp.status_code == 200
+    assert stats_resp.headers.get("Cache-Control") == "no-store, no-cache, must-revalidate, max-age=0"
     assert stats_resp.json()["total"] == 0
+
+    certs_resp = client.get("/api/admin/certificates")
+    assert certs_resp.status_code == 200
+    assert certs_resp.headers.get("Cache-Control") == "no-store, no-cache, must-revalidate, max-age=0"
 
 
 def test_admin_web_approval(admin_test_app):

@@ -47,14 +47,24 @@
       </div>
     </section>
 
-    <!-- Tab Buttons -->
+    <!-- Tab Buttons & Live Sync -->
     <div class="tabs-row">
-      <button id="tab-btn-requests" class="tab-btn active">
-        Pending Requests <span id="pending-counter" class="counter-badge">0</span>
-      </button>
-      <button id="tab-btn-inventory" class="tab-btn">
-        Certificate Inventory
-      </button>
+      <div class="tabs-group">
+        <button id="tab-btn-requests" class="tab-btn active">
+          Pending Requests <span id="pending-counter" class="counter-badge">0</span>
+        </button>
+        <button id="tab-btn-inventory" class="tab-btn">
+          Certificate Inventory
+        </button>
+      </div>
+      <div class="sync-group">
+        <span class="live-indicator" title="Auto-refreshing every 3 seconds">
+          <span class="pulse-dot"></span> Live Sync
+        </span>
+        <button id="btn-refresh" class="btn-refresh" title="Refresh all data now">
+          <span class="refresh-icon">🔄</span> Refresh
+        </button>
+      </div>
     </div>
 
     <!-- TAB 1: Pending Requests -->
