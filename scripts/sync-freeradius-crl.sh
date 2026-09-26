@@ -6,23 +6,15 @@
 # into OPNsense FreeRADIUS with zero unnecessary disk writes and zero redundant
 # service reloads.
 #
-# How it works:
-#   1. Sends an HTTP conditional request using curl with ETag / If-None-Match.
-#   2. If the CRL is unchanged, the server returns HTTP 304 Not Modified.
-#      curl skips opening/creating any output file, and the script exits 0.
-#   3. If a certificate was revoked, the server returns HTTP 200 OK.
-#      curl writes the new CRL to RAM (/tmp), the script updates FreeRADIUS's
-#      CA bundle (/usr/local/etc/raddb/certs/ca_opn.pem), and gracefully reloads
-#      radiusd.
+# Self-Initialization:
+#   On the very first run (or if FreeRADIUS CRL checking is not yet enabled),
+#   this script automatically registers the CRL in OPNsense's Trust Store,
+#   wires it into the FreeRADIUS EAP configuration, regenerates templates, and
+#   restarts the daemon. No manual GUI imports or clicks required!
 #
-# Requirements on OPNsense:
-#   - In Services -> FreeRADIUS -> EAP:
-#       * "Enable Client Certificate" is checked.
-#       * A CRL is selected in the "Certificate Revocation List" dropdown.
-#         (Import initial CRL into System -> Trust -> Revocation first).
-#
-# Recommended Cron Schedule:
-#   Run every 5 to 15 minutes via cron or OPNsense Monit / Cron GUI.
+# Fast Path (Every 5-15 mins):
+#   Uses HTTP ETag / 304 Not Modified in RAM (/tmp). If the CRL has not
+#   changed, zero disk writes and zero service reloads occur.
 # ==============================================================================
 
 set -e
@@ -33,7 +25,124 @@ TEMP_FILE="${TEMP_FILE:-/tmp/step-ca.crl.incoming}"
 INSTALLED_CRL="${INSTALLED_CRL:-/usr/local/etc/raddb/certs/step-ca.crl}"
 CA_OPN="${CA_OPN:-/usr/local/etc/raddb/certs/ca_opn.pem}"
 CA_BASE="${CA_BASE:-/usr/local/etc/raddb/certs/ca_base.pem}"
+EAP_CONF="/usr/local/etc/raddb/mods-enabled/eap"
 
+# ------------------------------------------------------------------------------
+# 1. AUTO-INITIALIZATION CHECK
+# ------------------------------------------------------------------------------
+# Verify if FreeRADIUS currently has "check_crl = yes" active in eap.conf
+CRL_ACTIVE=""
+if [ -f "$EAP_CONF" ]; then
+    CRL_ACTIVE=$(grep -E '^[[:space:]]*check_crl[[:space:]]*=[[:space:]]*yes' "$EAP_CONF" 2>/dev/null || true)
+fi
+
+if [ -z "$CRL_ACTIVE" ]; then
+    echo "Notice: FreeRADIUS CRL checking is not yet enabled. Running automated initialization..."
+    logger -t sync-freeradius-crl "FreeRADIUS CRL checking not detected. Initializing OPNsense Trust Store and EAP config..."
+
+    # Download initial CRL to /tmp
+    INIT_CRL="/tmp/step-ca.crl.init"
+    if ! curl -s -f "$CRL_URL" -o "$INIT_CRL"; then
+        echo "Error: Failed to download initial CRL from $CRL_URL"
+        logger -t sync-freeradius-crl "Failed to download initial CRL from $CRL_URL"
+        exit 1
+    fi
+
+    # Run embedded PHP script to register CRL in OPNsense config.xml
+    /usr/local/bin/php << 'EOF'
+<?php
+require_once('config.inc');
+use OPNsense\Core\Config;
+
+$configObj = Config::getInstance()->object();
+
+// 1. Identify the CA configured in FreeRADIUS EAP or the primary internal CA
+$caref = '';
+if (!empty($configObj->OPNsense->freeradius->eap->ca)) {
+    $caref = (string)$configObj->OPNsense->freeradius->eap->ca;
+    if (strpos($caref, ',') !== false) {
+        $caref = explode(',', $caref)[0];
+    }
+}
+if (empty($caref) && isset($configObj->ca)) {
+    foreach ($configObj->ca as $ca) {
+        $caref = (string)$ca->refid;
+        break;
+    }
+}
+
+if (empty($caref)) {
+    fwrite(STDERR, "Error: No Certificate Authority found in OPNsense configuration.\n");
+    exit(1);
+}
+
+// 2. Read the initial CRL PEM
+$crl_text = file_get_contents('/tmp/step-ca.crl.init');
+if (empty($crl_text)) {
+    fwrite(STDERR, "Error: Initial CRL file is empty.\n");
+    exit(1);
+}
+
+// 3. Find or create the CRL entry in OPNsense Trust
+$target_crl = null;
+if (isset($configObj->crl)) {
+    foreach ($configObj->crl as $crl) {
+        if ((string)$crl->caref == $caref && (string)$crl->descr == 'Spoutin Wi-Fi CRL') {
+            $target_crl = $crl;
+            break;
+        }
+    }
+}
+if ($target_crl === null) {
+    $target_crl = $configObj->addChild('crl');
+    $target_crl->refid = uniqid();
+}
+$target_crl->caref = $caref;
+$target_crl->descr = 'Spoutin Wi-Fi CRL';
+$target_crl->crlmethod = 'existing';
+$target_crl->text = base64_encode($crl_text);
+
+// 4. Link FreeRADIUS EAP settings to the CRL
+if (!isset($configObj->OPNsense->freeradius)) {
+    fwrite(STDERR, "Error: FreeRADIUS plugin configuration not found.\n");
+    exit(1);
+}
+$configObj->OPNsense->freeradius->eap->crl = (string)$target_crl->refid;
+$configObj->OPNsense->freeradius->eap->enable_client_cert = '1';
+
+// 5. Save changes
+Config::getInstance()->save();
+echo "Successfully registered Spoutin Wi-Fi CRL in OPNsense config.xml (refid: " . $target_crl->refid . ")\n";
+EOF
+
+    # Regenerate FreeRADIUS templates and certificates
+    if command -v configctl >/dev/null 2>&1; then
+        configctl template reload OPNsense/Freeradius || true
+    fi
+
+    if [ -f "/usr/local/opnsense/scripts/Freeradius/generate_certs.php" ]; then
+        /usr/local/opnsense/scripts/Freeradius/generate_certs.php || true
+    fi
+
+    # Restart FreeRADIUS daemon
+    if command -v configctl >/dev/null 2>&1; then
+        configctl freeradius restart || service radiusd restart || true
+    else
+        service radiusd restart || true
+    fi
+
+    # Save initial ETag so next run uses 304 Not Modified
+    curl -s -I "$CRL_URL" | awk -F': ' '/[Ee][Tt][Aa][Gg]/ {gsub(/[\r\n"]/, "", $2); print "\"" $2 "\""}' > "$ETAG_FILE" 2>/dev/null || true
+    rm -f "$INIT_CRL"
+
+    echo "Auto-initialization complete! FreeRADIUS CRL checking is now active."
+    logger -t sync-freeradius-crl "Auto-initialization complete. FreeRADIUS CRL validation is active."
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# 2. FAST PATH: CONDITIONAL ETAG REFRESH (Zero Flash Wear)
+# ------------------------------------------------------------------------------
 # Fetch with ETag tracking (in-memory in /tmp)
 HTTP_CODE=$(curl -s -w "%{http_code}" \
     --etag-compare "$ETAG_FILE" \
@@ -41,7 +150,7 @@ HTTP_CODE=$(curl -s -w "%{http_code}" \
     "$CRL_URL" \
     -o "$TEMP_FILE")
 
-# HTTP 304 Not Modified: CRL is identical, nothing to do
+# HTTP 304 Not Modified: CRL is identical, zero disk writes, nothing to do
 if [ "$HTTP_CODE" = "304" ]; then
     rm -f "$TEMP_FILE"
     exit 0

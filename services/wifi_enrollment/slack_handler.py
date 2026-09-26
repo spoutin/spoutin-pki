@@ -258,7 +258,7 @@ class SlackEnrollmentHandler:
             raise KeyError(f"Request {request_id} not found in state manager")
 
         # 5. Add or update user in FreeRADIUS and reconfigure
-        desc = f"Spoutin PKI | req:{request_id} | vlan:{vlan.value}"
+        desc = f"Spoutin PKI | vlan:{vlan.value} | req:{request_id}"
         self.radius_client.upsert_user(
             username=approved_name,
             vlan=vlan.value,

@@ -289,7 +289,7 @@ def test_admin_update_vlan(admin_test_app):
     assert "LAN" in data["vlan_label"]
 
     radius_client.update_user_vlan.assert_called_once_with(
-        "device-vlan-change", 1, description="Spoutin PKI | req:req-vlan-test | vlan:1"
+        "device-vlan-change", 1, description="Spoutin PKI | vlan:1 | req:req-vlan-test"
     )
     cert = db.get_certificate("99999")
     assert cert["vlan_id"] == 1

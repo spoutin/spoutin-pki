@@ -1,5 +1,5 @@
 Package: wifi-enrollment
-Version: 0.2.8
+Version: 0.2.9
 Section: net
 Priority: optional
 Architecture: amd64

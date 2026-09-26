@@ -115,7 +115,7 @@ def test_process_approval_flow(mock_clients):
     radius_client.upsert_user.assert_called_once_with(
         username="ablack-phone",
         vlan=8,
-        description=f"Spoutin PKI | req:{record.request_id} | vlan:8",
+        description=f"Spoutin PKI | vlan:8 | req:{record.request_id}",
     )
     radius_client.reconfigure_service.assert_called_once()
 

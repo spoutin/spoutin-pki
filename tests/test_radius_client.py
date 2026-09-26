@@ -139,9 +139,9 @@ def test_update_user_vlan_existing(mock_post):
     mock_post.side_effect = [search_resp, set_resp, reconfig_resp]
 
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
-    assert client.update_user_vlan("dev-1", 1, description="Spoutin PKI | req:123 | vlan:1") is True
+    assert client.update_user_vlan("dev-1", 1, description="Spoutin PKI | vlan:1 | req:123") is True
     set_call = mock_post.call_args_list[1]
-    assert set_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | req:123 | vlan:1"
+    assert set_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | vlan:1 | req:123"
 
 
 @patch("requests.Session.post")
@@ -157,12 +157,12 @@ def test_upsert_user_existing(mock_post):
     mock_post.side_effect = [search_resp, set_resp]
 
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
-    res = client.upsert_user("dev-1", 8, description="Spoutin PKI | req:abc | vlan:8")
+    res = client.upsert_user("dev-1", 8, description="Spoutin PKI | vlan:8 | req:abc")
     assert res == {"result": "saved"}
     set_call = mock_post.call_args_list[1]
     assert "/setUser/u1" in set_call.args[0]
     assert set_call.kwargs["json"]["user"]["vlan"] == "8"
-    assert set_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | req:abc | vlan:8"
+    assert set_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | vlan:8 | req:abc"
 
 
 @patch("requests.Session.post")
@@ -178,10 +178,10 @@ def test_upsert_user_new(mock_post):
     mock_post.side_effect = [search_resp, add_resp]
 
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
-    res = client.upsert_user("dev-new", 8, description="Spoutin PKI | req:xyz | vlan:8")
+    res = client.upsert_user("dev-new", 8, description="Spoutin PKI | vlan:8 | req:xyz")
     assert res == {"result": "saved"}
     add_call = mock_post.call_args_list[1]
     assert "/addUser" in add_call.args[0]
     assert add_call.kwargs["json"]["user"]["vlan"] == "8"
-    assert add_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | req:xyz | vlan:8"
+    assert add_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | vlan:8 | req:xyz"
 

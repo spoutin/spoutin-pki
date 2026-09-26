@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.8",
+        version="0.2.9",
         lifespan=lifespan,
     )
 
@@ -728,7 +728,7 @@ def create_app(
             try:
                 req_id = cert.get("request_id")
                 desc = (
-                    f"Spoutin PKI | req:{req_id} | vlan:{body.vlan_id}"
+                    f"Spoutin PKI | vlan:{body.vlan_id} | req:{req_id}"
                     if req_id
                     else f"Spoutin PKI | vlan:{body.vlan_id}"
                 )
