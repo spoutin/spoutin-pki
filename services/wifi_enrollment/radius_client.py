@@ -125,6 +125,65 @@ class FreeRadiusClient:
 
         return data
 
+    def list_users(self) -> dict[str, dict]:
+        """Returns all FreeRADIUS users and their configured VLANs from OPNsense."""
+        endpoint = f"{self.url}/api/freeradius/user/searchUser"
+        try:
+            resp = self.session.post(
+                endpoint,
+                auth=self.auth,
+                verify=self.verify_ssl,
+                json={"rowCount": -1, "searchPhrase": ""},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            users: dict[str, dict] = {}
+            for row in data.get("rows", []):
+                username = row.get("username")
+                if not username:
+                    continue
+                vlan_raw = row.get("vlan")
+                vlan_int = int(vlan_raw) if vlan_raw is not None and str(vlan_raw).isdigit() else None
+                users[username] = {
+                    "uuid": row.get("uuid"),
+                    "vlan": vlan_int,
+                    "enabled": row.get("enabled"),
+                    "description": row.get("description"),
+                }
+            return users
+        except Exception:
+            return {}
+
+    def update_user_vlan(self, username: str, vlan: int) -> bool:
+        """Updates the Dynamic VLAN assignment for an existing FreeRADIUS user and reconfigures."""
+        user_uuid = self.get_user_uuid(username)
+        if not user_uuid:
+            # Fallback to adding the user if not found
+            self.add_user(username=username, vlan=vlan)
+            self.reconfigure_service()
+            return True
+
+        endpoint = f"{self.url}/api/freeradius/user/setUser/{user_uuid}"
+        payload = {
+            "user": {
+                "vlan": str(vlan),
+            }
+        }
+        resp = self.session.post(
+            endpoint,
+            auth=self.auth,
+            verify=self.verify_ssl,
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("result") == "saved":
+            self.reconfigure_service()
+            return True
+        return False
+
     def reconfigure_service(self) -> bool:
         """Regenerates FreeRADIUS configuration templates and reloads the daemon."""
         endpoint = f"{self.url}/api/freeradius/service/reconfigure"

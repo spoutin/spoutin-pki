@@ -102,3 +102,42 @@ def test_delete_user_success(mock_post):
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
     assert client.delete_user("ablack-phone") is True
 
+
+@patch("requests.Session.post")
+def test_list_users(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "rows": [
+            {"username": "dev-1", "uuid": "u1", "vlan": "8", "enabled": "1"},
+            {"username": "dev-2", "uuid": "u2", "vlan": "1", "enabled": "1"},
+        ]
+    }
+    mock_post.return_value = mock_resp
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    users = client.list_users()
+    assert len(users) == 2
+    assert users["dev-1"]["vlan"] == 8
+    assert users["dev-2"]["vlan"] == 1
+
+
+@patch("requests.Session.post")
+def test_update_user_vlan_existing(mock_post):
+    search_resp = MagicMock()
+    search_resp.status_code = 200
+    search_resp.json.return_value = {"rows": [{"username": "dev-1", "uuid": "u1"}]}
+
+    set_resp = MagicMock()
+    set_resp.status_code = 200
+    set_resp.json.return_value = {"result": "saved"}
+
+    reconfig_resp = MagicMock()
+    reconfig_resp.status_code = 200
+    reconfig_resp.json.return_value = {"status": "ok"}
+
+    mock_post.side_effect = [search_resp, set_resp, reconfig_resp]
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    assert client.update_user_vlan("dev-1", 1) is True
+

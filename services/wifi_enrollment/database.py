@@ -142,6 +142,48 @@ class CertificateDatabase:
             rows = cur.fetchall()
             return [dict(r) for r in rows]
 
+    def update_certificate_vlan(
+        self,
+        serial_number: str,
+        vlan_id: int,
+        vlan_label: str,
+    ) -> bool:
+        """Updates the assigned VLAN ID and label for a certificate."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE certificates
+                SET vlan_id = ?,
+                    vlan_label = ?
+                WHERE serial_number = ?
+                """,
+                (vlan_id, vlan_label, serial_number),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def update_vlan_by_device_name(
+        self,
+        device_name: str,
+        vlan_id: int,
+        vlan_label: str,
+    ) -> int:
+        """Updates the VLAN for all active certificates matching device_name."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE certificates
+                SET vlan_id = ?,
+                    vlan_label = ?
+                WHERE device_name = ? AND status = 'ACTIVE' AND vlan_id != ?
+                """,
+                (vlan_id, vlan_label, device_name, vlan_id),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
     def revoke_certificate(
         self,
         serial_number: str,

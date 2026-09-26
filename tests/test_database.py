@@ -134,3 +134,32 @@ def test_get_stats(db):
     assert stats["active"] == 1
     assert stats["revoked"] == 1
     assert stats["by_vlan"][8] == 2
+
+
+def test_update_certificate_vlan(db):
+    now = int(time.time())
+    db.insert_certificate(
+        serial_number="5555",
+        device_name="device-vlan-test",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.1",
+        cert_pem="PEM",
+        issued_at=now,
+        expires_at=now + 1000,
+    )
+
+    updated = db.update_certificate_vlan("5555", 1, "1 - LAN")
+    assert updated is True
+
+    cert = db.get_certificate("5555")
+    assert cert["vlan_id"] == 1
+    assert cert["vlan_label"] == "1 - LAN"
+
+    # Update by device name
+    changed = db.update_vlan_by_device_name("device-vlan-test", 9, "9 - IoT")
+    assert changed == 1
+    cert2 = db.get_certificate("5555")
+    assert cert2["vlan_id"] == 9
+    assert cert2["vlan_label"] == "9 - IoT"

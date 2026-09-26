@@ -40,12 +40,28 @@
   const revokeConfirmBtn = document.getElementById("revoke-confirm-btn");
   let activeRevokeSerial = null;
 
+  // Edit VLAN Modal
+  const editVlanModal = document.getElementById("edit-vlan-modal");
+  const vlanModalDevice = document.getElementById("vlan-modal-device");
+  const vlanModalSerial = document.getElementById("vlan-modal-serial");
+  const vlanModalSelect = document.getElementById("vlan-modal-select");
+  const vlanModalCancelBtn = document.getElementById("vlan-modal-cancel-btn");
+  const vlanModalConfirmBtn = document.getElementById("vlan-modal-confirm-btn");
+  let activeVlanSerial = null;
+
+  // Metric Cards
+  const cardActive = document.getElementById("card-active");
+  const cardRevoked = document.getElementById("card-revoked");
+  const cardPending = document.getElementById("card-pending");
+
   const btnRefresh = document.getElementById("btn-refresh");
   const liveIndicator = document.getElementById("live-indicator");
   const liveText = document.getElementById("live-text");
   const pulseDot = document.getElementById("pulse-dot");
 
   let adminEventSource = null;
+
+  const copyIconSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 
   // Helper for cache-busting fetch
   async function adminFetch(url, options = {}) {
@@ -61,6 +77,21 @@
       cache: "no-store",
       headers,
     });
+  }
+
+  // --- Tab Switcher Helper ---
+  function switchToTab(tabName) {
+    if (tabName === "requests") {
+      tabBtnRequests.classList.add("active");
+      tabBtnInventory.classList.remove("active");
+      tabRequestsView.classList.remove("hidden");
+      tabInventoryView.classList.add("hidden");
+    } else {
+      tabBtnInventory.classList.add("active");
+      tabBtnRequests.classList.remove("active");
+      tabInventoryView.classList.remove("hidden");
+      tabRequestsView.classList.add("hidden");
+    }
   }
 
   // --- Server-Sent Events (SSE) Connection ---
@@ -88,6 +119,8 @@
     adminEventSource.addEventListener("request_approved", onServerUpdate);
     adminEventSource.addEventListener("request_rejected", onServerUpdate);
     adminEventSource.addEventListener("cert_revoked", onServerUpdate);
+    adminEventSource.addEventListener("cert_vlan_updated", onServerUpdate);
+    adminEventSource.addEventListener("vlan_synced", onServerUpdate);
 
     adminEventSource.onerror = () => {
       if (liveText) liveText.textContent = "Connecting...";
@@ -99,7 +132,19 @@
   // --- Initial Setup ---
   async function init() {
     await fetchProfile();
-    await refreshAll(true);
+    const [, pendingList] = await Promise.all([
+      refreshStats(),
+      refreshRequests(),
+    ]);
+    await refreshInventory();
+
+    // Smart landing page: open pending requests if any, otherwise default to inventory
+    if (pendingList && pendingList.length > 0) {
+      switchToTab("requests");
+    } else {
+      switchToTab("inventory");
+    }
+
     connectSSE();
 
     // Low-frequency safety poll (every 60s) instead of aggressive polling
@@ -141,7 +186,7 @@
   async function refreshStats() {
     try {
       const resp = await adminFetch("/api/admin/stats");
-      if (!resp.ok) return;
+      if (!resp.ok) return null;
       const stats = await resp.json();
       statActiveEl.textContent = stats.active ?? 0;
       statRevokedEl.textContent = stats.revoked ?? 0;
@@ -151,19 +196,23 @@
       const byVlan = stats.by_vlan || {};
       for (const [vId, count] of Object.entries(byVlan)) {
         const span = document.createElement("span");
-        span.className = "vlan-pill";
+        span.className = "vlan-pill clickable";
+        span.dataset.vlan = vId;
+        span.title = `Click to filter inventory by VLAN ${vId} (${vlanLabels[vId] || "Other"})`;
         span.textContent = `VLAN ${vId} (${vlanLabels[vId] || "Other"}): ${count}`;
         vlanPillsEl.appendChild(span);
       }
+      return stats;
     } catch (e) {
       console.error("Stats refresh failed", e);
+      return null;
     }
   }
 
   async function refreshRequests() {
     try {
       const resp = await adminFetch("/api/admin/requests");
-      if (!resp.ok) return;
+      if (!resp.ok) return [];
       const requests = await resp.json();
       statPendingEl.textContent = requests.length;
       pendingCounter.textContent = requests.length;
@@ -171,7 +220,7 @@
       requestsTbody.innerHTML = "";
       if (requests.length === 0) {
         requestsEmpty.classList.remove("hidden");
-        return;
+        return requests;
       }
       requestsEmpty.classList.add("hidden");
 
@@ -192,8 +241,10 @@
         `;
         requestsTbody.appendChild(tr);
       });
+      return requests;
     } catch (e) {
       console.error("Requests load failed", e);
+      return [];
     }
   }
 
@@ -232,15 +283,29 @@
           ? `${String(c.serial_number).slice(0, 8)}...${String(c.serial_number).slice(-8)}`
           : (c.serial_number || "");
 
+        const serialCellHtml = `
+          <span class="serial-cell">
+            <code title="Full Serial: ${escapeHtml(c.serial_number)}">${escapeHtml(shortSerial)}</code>
+            <button class="btn-copy" data-action="copy-serial" data-serial="${escapeHtml(c.serial_number)}" title="Copy full serial number">
+              ${copyIconSvg}
+            </button>
+          </span>
+        `;
+
+        const vlanBadgeHtml = isRevoked
+          ? `<span class="badge badge-vlan">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`
+          : `<span class="badge badge-vlan clickable" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}" title="Click to edit VLAN assignment">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`;
+
         const actionHtml = isRevoked
           ? `<span class="hint" style="color: var(--text-muted);">${escapeHtml(c.revocation_reason || "Revoked")}</span>`
-          : `<button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${c.serial_number}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
+          : `<button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
+             <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
 
         tr.innerHTML = `
           <td><strong>${escapeHtml(c.device_name)}</strong></td>
           <td>${escapeHtml(c.platform)}</td>
-          <td><span class="badge badge-vlan">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span></td>
-          <td><code title="${c.serial_number}">${shortSerial}</code></td>
+          <td>${vlanBadgeHtml}</td>
+          <td>${serialCellHtml}</td>
           <td>${issuedDate}</td>
           <td>${expiresDate}</td>
           <td>${statusBadge}</td>
@@ -300,9 +365,30 @@
   });
 
   inventoryTbody.addEventListener("click", (e) => {
-    const btn = e.target.closest("button");
+    const btn = e.target.closest("button, .badge-vlan.clickable");
     if (!btn) return;
-    if (btn.dataset.action === "open-revoke") {
+    const action = btn.dataset.action;
+
+    if (action === "copy-serial") {
+      const serial = btn.dataset.serial;
+      if (!serial) return;
+      navigator.clipboard.writeText(serial).then(() => {
+        btn.classList.add("copied");
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          btn.innerHTML = copyIconSvg;
+        }, 1500);
+      }).catch((err) => {
+        console.error("Clipboard write failed:", err);
+      });
+    } else if (action === "open-vlan") {
+      activeVlanSerial = btn.dataset.serial;
+      vlanModalSerial.textContent = activeVlanSerial;
+      vlanModalDevice.textContent = btn.dataset.name;
+      vlanModalSelect.value = String(btn.dataset.vlan || "8");
+      editVlanModal.classList.remove("hidden");
+    } else if (action === "open-revoke") {
       activeRevokeSerial = btn.dataset.serial;
       revokeSerial.textContent = activeRevokeSerial;
       revokeDeviceName.textContent = btn.dataset.name;
@@ -338,6 +424,38 @@
       }
     } finally {
       modalConfirmApproveBtn.disabled = false;
+    }
+  });
+
+  // Edit VLAN Modal Listeners
+  vlanModalCancelBtn.addEventListener("click", () => {
+    editVlanModal.classList.add("hidden");
+    activeVlanSerial = null;
+  });
+
+  vlanModalConfirmBtn.addEventListener("click", async () => {
+    if (!activeVlanSerial) return;
+    const newVlanId = parseInt(vlanModalSelect.value, 10);
+    vlanModalConfirmBtn.disabled = true;
+
+    try {
+      const resp = await adminFetch(`/api/admin/certificates/${activeVlanSerial}/vlan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vlan_id: newVlanId }),
+      });
+      if (resp.ok) {
+        editVlanModal.classList.add("hidden");
+        activeVlanSerial = null;
+        await refreshAll(true);
+      } else {
+        const err = await resp.json();
+        alert(`Failed to update VLAN: ${err.detail || "Server error"}`);
+      }
+    } catch (e) {
+      alert(`Network error updating VLAN: ${e.message}`);
+    } finally {
+      vlanModalConfirmBtn.disabled = false;
     }
   });
 
@@ -381,21 +499,53 @@
   filterStatus.addEventListener("change", refreshInventory);
   filterVlan.addEventListener("change", refreshInventory);
 
+  // --- Top Metric Cards Navigation Listeners ---
+  if (cardActive) {
+    cardActive.addEventListener("click", () => {
+      switchToTab("inventory");
+      filterStatus.value = "ACTIVE";
+      filterVlan.value = "";
+      refreshInventory();
+      refreshStats();
+    });
+  }
+
+  if (cardRevoked) {
+    cardRevoked.addEventListener("click", () => {
+      switchToTab("inventory");
+      filterStatus.value = "REVOKED";
+      filterVlan.value = "";
+      refreshInventory();
+      refreshStats();
+    });
+  }
+
+  if (cardPending) {
+    cardPending.addEventListener("click", () => {
+      switchToTab("requests");
+      refreshRequests();
+      refreshStats();
+    });
+  }
+
+  vlanPillsEl.addEventListener("click", (e) => {
+    const pill = e.target.closest(".vlan-pill");
+    if (!pill || !pill.dataset.vlan) return;
+    switchToTab("inventory");
+    filterVlan.value = pill.dataset.vlan;
+    filterStatus.value = "";
+    refreshInventory();
+  });
+
   // --- Tab Switcher ---
   tabBtnRequests.addEventListener("click", () => {
-    tabBtnRequests.classList.add("active");
-    tabBtnInventory.classList.remove("active");
-    tabRequestsView.classList.remove("hidden");
-    tabInventoryView.classList.add("hidden");
+    switchToTab("requests");
     refreshRequests();
     refreshStats();
   });
 
   tabBtnInventory.addEventListener("click", () => {
-    tabBtnInventory.classList.add("active");
-    tabBtnRequests.classList.remove("active");
-    tabInventoryView.classList.remove("hidden");
-    tabRequestsView.classList.add("hidden");
+    switchToTab("inventory");
     refreshInventory();
     refreshStats();
   });
@@ -406,7 +556,11 @@
       btnRefresh.classList.add("spinning");
       btnRefresh.disabled = true;
       try {
-        await refreshAll(true);
+        // Trigger background FreeRADIUS sync and reload UI in parallel
+        await Promise.all([
+          adminFetch("/api/admin/sync-radius", { method: "POST" }),
+          refreshAll(true),
+        ]);
       } finally {
         setTimeout(() => {
           btnRefresh.classList.remove("spinning");

@@ -27,15 +27,15 @@
   <main class="main-content">
     <!-- KPI Stats Cards -->
     <section class="stats-grid">
-      <div class="stat-card">
+      <div id="card-active" class="stat-card clickable" title="Click to view Active Certificates">
         <div class="stat-label">Active Certificates</div>
         <div id="stat-active" class="stat-value active">-</div>
       </div>
-      <div class="stat-card">
+      <div id="card-revoked" class="stat-card clickable" title="Click to view Revoked Certificates">
         <div class="stat-label">Revoked Certificates</div>
         <div id="stat-revoked" class="stat-value revoked">-</div>
       </div>
-      <div class="stat-card">
+      <div id="card-pending" class="stat-card clickable" title="Click to view Pending Requests">
         <div class="stat-label">Pending Requests</div>
         <div id="stat-pending" class="stat-value pending">-</div>
       </div>
@@ -208,6 +208,36 @@
       <div class="modal-actions">
         <button id="revoke-cancel-btn" class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);">Cancel</button>
         <button id="revoke-confirm-btn" class="btn-sm btn-revoke">Confirm Revocation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Edit VLAN Assignment -->
+  <div id="edit-vlan-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Edit Dynamic VLAN Assignment</h2>
+        <p class="modal-subtitle">Update assigned VLAN in FreeRADIUS for <strong id="vlan-modal-device"></strong></p>
+      </div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label>Certificate Serial Number</label>
+          <code id="vlan-modal-serial" style="display: block; padding: 0.5rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.375rem; word-break: break-all;"></code>
+        </div>
+        <div class="modal-field">
+          <label for="vlan-modal-select">Dynamic VLAN Network</label>
+          <select id="vlan-modal-select" class="filter-select" style="width: 100%;">
+            <option value="8">8 - SemiPrivate (Default)</option>
+            <option value="1">1 - LAN</option>
+            <option value="2">2 - DMS</option>
+            <option value="9">9 - IoT</option>
+          </select>
+          <p class="field-hint">Changes apply immediately in FreeRADIUS and take effect upon user reconnect.</p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="vlan-modal-cancel-btn" class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);">Cancel</button>
+        <button id="vlan-modal-confirm-btn" class="btn-sm btn-approve">Save & Apply to FreeRADIUS</button>
       </div>
     </div>
   </div>

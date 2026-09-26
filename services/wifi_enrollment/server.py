@@ -97,6 +97,47 @@ class RevokeRequestBody(BaseModel):
     scope: str = "CERT_ONLY"  # "CERT_ONLY" or "USER_AND_CERT"
 
 
+class UpdateVlanRequestBody(BaseModel):
+    vlan_id: int
+
+
+def sync_radius_vlans(
+    db: CertificateDatabase,
+    rc: Optional[FreeRadiusClient],
+    bc: Optional[EventBroadcaster],
+) -> int:
+    """Syncs VLAN assignments from FreeRADIUS into the local database."""
+    if not rc:
+        return 0
+    try:
+        users = rc.list_users()
+        if not users:
+            return 0
+
+        updated_count = 0
+        for username, data in users.items():
+            vlan_id = data.get("vlan")
+            if vlan_id is None:
+                continue
+            try:
+                vlan_opt = VlanOption(vlan_id)
+                label = vlan_opt.label
+            except ValueError:
+                label = f"VLAN {vlan_id}"
+
+            changed = db.update_vlan_by_device_name(username, vlan_id, label)
+            if changed > 0:
+                updated_count += changed
+
+        if updated_count > 0 and bc:
+            bc.publish_admin("vlan_synced", {"updated": updated_count})
+
+        return updated_count
+    except Exception as e:
+        logger.error(f"Error during FreeRADIUS VLAN sync: {e}", exc_info=True)
+        return 0
+
+
 def create_app(
     state_manager: Optional[StateManager] = None,
     slack_handler: Optional[SlackEnrollmentHandler] = None,
@@ -124,6 +165,18 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         bc.set_loop(asyncio.get_running_loop())
+
+        # Background FreeRADIUS periodic sync loop (every 60s)
+        async def run_radius_sync():
+            while True:
+                await asyncio.sleep(60)
+                try:
+                    sync_radius_vlans(db, rc, bc)
+                except Exception as e:
+                    logger.debug(f"Background FreeRADIUS sync error: {e}")
+
+        sync_task = asyncio.create_task(run_radius_sync())
+
         socket_handler = getattr(app.state, "socket_mode_handler", None)
         if socket_handler:
             def run_socket_mode():
@@ -139,10 +192,11 @@ def create_app(
         else:
             logger.warning("No socket_mode_handler registered on app.state! Slack interactive events will not be received.")
         yield
+        sync_task.cancel()
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.2",
+        version="0.2.3",
         lifespan=lifespan,
     )
 
@@ -609,6 +663,62 @@ def create_app(
             "scope": body.scope,
             "reason": body.reason,
         }
+
+    @app.post("/api/admin/certificates/{serial}/vlan")
+    def update_certificate_vlan_endpoint(
+        serial: str,
+        body: UpdateVlanRequestBody,
+        admin: dict = Depends(require_admin),
+    ):
+        cert = db.get_certificate(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail="Certificate not found in database.")
+
+        if cert.get("status") == "REVOKED":
+            raise HTTPException(status_code=400, detail="Cannot change VLAN for a revoked certificate.")
+
+        try:
+            vlan_opt = VlanOption(body.vlan_id)
+            vlan_label = vlan_opt.label
+        except ValueError:
+            vlan_label = f"VLAN {body.vlan_id}"
+
+        # 1. Update FreeRADIUS if client is available
+        rc_client: Optional[FreeRadiusClient] = app.state.radius_client
+        if rc_client:
+            try:
+                rc_client.update_user_vlan(cert["device_name"], body.vlan_id)
+            except Exception as e:
+                logger.error(f"Failed to update FreeRADIUS VLAN for {cert['device_name']}: {e}", exc_info=True)
+                raise HTTPException(status_code=502, detail=f"Failed to update FreeRADIUS: {e}")
+
+        # 2. Update Database
+        db.update_certificate_vlan(serial, body.vlan_id, vlan_label)
+
+        # 3. Notify Admin Dashboards via SSE
+        bc.publish_admin(
+            event="cert_vlan_updated",
+            data={
+                "serial_number": serial,
+                "device_name": cert["device_name"],
+                "vlan_id": body.vlan_id,
+                "vlan_label": vlan_label,
+            },
+        )
+
+        return {
+            "status": "updated",
+            "serial_number": serial,
+            "device_name": cert["device_name"],
+            "vlan_id": body.vlan_id,
+            "vlan_label": vlan_label,
+        }
+
+    @app.post("/api/admin/sync-radius")
+    def sync_radius_endpoint(admin: dict = Depends(require_admin)):
+        rc_client: Optional[FreeRadiusClient] = app.state.radius_client
+        count = sync_radius_vlans(db, rc_client, bc)
+        return {"status": "synced", "updated": count}
 
     return app
 

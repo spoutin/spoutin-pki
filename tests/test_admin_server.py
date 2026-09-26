@@ -207,3 +207,58 @@ def test_admin_events_stream_unauth(admin_test_app):
     client.cookies.clear()
     resp = client.get("/api/admin/events")
     assert resp.status_code == 401
+
+
+def test_admin_update_vlan(admin_test_app):
+    client, _, db, _, radius_client, _ = admin_test_app
+    db.insert_certificate(
+        serial_number="99999",
+        device_name="device-vlan-change",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.9",
+        cert_pem="PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+    radius_client.update_user_vlan.return_value = True
+
+    resp = client.post(
+        "/api/admin/certificates/99999/vlan",
+        json={"vlan_id": 1},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vlan_id"] == 1
+    assert "LAN" in data["vlan_label"]
+
+    radius_client.update_user_vlan.assert_called_once_with("device-vlan-change", 1)
+    cert = db.get_certificate("99999")
+    assert cert["vlan_id"] == 1
+
+
+def test_admin_sync_radius(admin_test_app):
+    client, _, db, _, radius_client, _ = admin_test_app
+    db.insert_certificate(
+        serial_number="88888",
+        device_name="device-sync",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.8",
+        cert_pem="PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+    # Mock radius_client.list_users returning changed VLAN 9
+    radius_client.list_users.return_value = {
+        "device-sync": {"vlan": 9, "uuid": "u8"}
+    }
+
+    resp = client.post("/api/admin/sync-radius")
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 1
+
+    cert = db.get_certificate("88888")
+    assert cert["vlan_id"] == 9
