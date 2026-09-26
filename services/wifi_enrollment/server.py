@@ -20,6 +20,7 @@ from services.wifi_enrollment.auth import (
     generate_slack_oauth_url,
     get_current_admin,
     is_authorized_admin,
+    verify_session_token,
 )
 from services.wifi_enrollment.config import settings
 from services.wifi_enrollment.database import CertificateDatabase

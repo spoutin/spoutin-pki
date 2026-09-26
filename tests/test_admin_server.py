@@ -172,3 +172,24 @@ def test_public_crl_route(admin_test_app):
     resp = client.get("/crl")
     assert resp.status_code == 200
     assert resp.content == b"DUMMY_CRL_BYTES"
+
+
+def test_admin_html_pages(admin_test_app):
+    client, _, _, _, _, _ = admin_test_app
+
+    # Authenticated client accessing /admin
+    admin_page_resp = client.get("/admin")
+    assert admin_page_resp.status_code == 200
+    assert "Spoutin PKI" in admin_page_resp.text
+    assert "Certificate Inventory" in admin_page_resp.text
+
+    # Login page is public
+    login_page_resp = client.get("/admin/login")
+    assert login_page_resp.status_code == 200
+    assert "Sign in with Slack" in login_page_resp.text
+
+    # Unauthenticated access redirects to /admin/login
+    client.cookies.clear()
+    unauth_resp = client.get("/admin", follow_redirects=False)
+    assert unauth_resp.status_code == 302
+    assert "/admin/login" in unauth_resp.headers["location"]

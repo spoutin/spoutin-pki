@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard • Spoutin PKI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="brand">
+      <img src="/static/logo.svg" alt="Spoutin Logo" class="brand-logo">
+      <span class="brand-title">Spoutin PKI</span>
+      <span class="badge-tag">Admin</span>
+    </div>
+
+    <div class="nav-user">
+      <img id="admin-avatar" src="/static/favicon.svg" alt="Admin Avatar" class="user-avatar">
+      <span id="admin-email" class="user-name">Loading...</span>
+      <button id="logout-btn" class="logout-btn">Log Out</button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- KPI Stats Cards -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Active Certificates</div>
+        <div id="stat-active" class="stat-value active">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Revoked Certificates</div>
+        <div id="stat-revoked" class="stat-value revoked">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pending Requests</div>
+        <div id="stat-pending" class="stat-value pending">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">VLAN Distribution</div>
+        <div id="vlan-pills" class="vlan-pill-row">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab Buttons -->
+    <div class="tabs-row">
+      <button id="tab-btn-requests" class="tab-btn active">
+        Pending Requests <span id="pending-counter" class="counter-badge">0</span>
+      </button>
+      <button id="tab-btn-inventory" class="tab-btn">
+        Certificate Inventory
+      </button>
+    </div>
+
+    <!-- TAB 1: Pending Requests -->
+    <section id="tab-requests-view">
+      <div class="table-card">
+        <table id="requests-table">
+          <thead>
+            <tr>
+              <th>Device Name</th>
+              <th>Platform</th>
+              <th>Client IP</th>
+              <th>Submitted</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="requests-tbody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+        <div id="requests-empty" class="empty-state hidden">
+          No pending Wi-Fi enrollment requests.
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Certificate Inventory -->
+    <section id="tab-inventory-view" class="hidden">
+      <!-- Toolbar Filters -->
+      <div class="toolbar">
+        <input type="text" id="inventory-search" class="search-input" placeholder="Search by device, serial number, or IP...">
+        <select id="filter-status" class="filter-select">
+          <option value="">All Statuses</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="REVOKED">Revoked Only</option>
+        </select>
+        <select id="filter-vlan" class="filter-select">
+          <option value="">All VLANs</option>
+          <option value="8">8 - SemiPrivate</option>
+          <option value="1">1 - LAN</option>
+          <option value="2">2 - DMS</option>
+          <option value="9">9 - IoT</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <table id="inventory-table">
+          <thead>
+            <tr>
+              <th>Device / Identity</th>
+              <th>Platform</th>
+              <th>Assigned VLAN</th>
+              <th>Serial Number</th>
+              <th>Issued</th>
+              <th>Expires</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-tbody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+        <div id="inventory-empty" class="empty-state hidden">
+          No matching certificates found.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Web Edit & Approve Modal -->
+  <div id="edit-approve-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Approve Device Enrollment</h2>
+      </div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label for="edit-device-name">Device Name / Wi-Fi Identity</label>
+          <input type="text" id="edit-device-name" class="search-input" style="width: 100%;">
+        </div>
+        <div class="modal-field">
+          <label for="edit-vlan-select">Assigned VLAN</label>
+          <select id="edit-vlan-select" class="filter-select" style="width: 100%;">
+            <option value="8">8 - SemiPrivate (Default)</option>
+            <option value="1">1 - LAN</option>
+            <option value="2">2 - DMS</option>
+            <option value="9">9 - IoT</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-cancel-btn" class="btn-sm btn-reject">Cancel</button>
+        <button id="modal-confirm-approve-btn" class="btn-sm btn-approve">Approve & Issue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Revocation Modal -->
+  <div id="revoke-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 style="color: var(--danger);">Revoke Wi-Fi Credentials</h2>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.95rem; margin-bottom: 1rem;">
+          Revoke credentials for <strong id="revoke-device-name">...</strong> (Serial: <code id="revoke-serial">...</code>)
+        </p>
+
+        <div class="modal-field">
+          <label>Revocation Scope</label>
+          <div class="radio-group">
+            <label class="radio-card">
+              <input type="radio" name="revoke_scope" value="CERT_ONLY" checked>
+              <div>
+                <strong>Revoke Certificate Only (CRL)</strong>
+                <div class="radio-desc">Adds certificate to step-ca's Revocation List (CRL). Keeps user in FreeRADIUS.</div>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="revoke_scope" value="USER_AND_CERT">
+              <div>
+                <strong>Revoke Certificate & Delete FreeRADIUS User</strong>
+                <div class="radio-desc">Adds certificate to step-ca CRL AND removes user from FreeRADIUS authorization.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-field">
+          <label for="revoke-reason-select">Reason for Revocation</label>
+          <select id="revoke-reason-select" class="filter-select" style="width: 100%;">
+            <option value="cessationOfOperation">Device decommissioned / retired</option>
+            <option value="keyCompromise">Key compromise</option>
+            <option value="affiliationChanged">Device lost or stolen</option>
+            <option value="superseded">Superseded by new certificate</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="revoke-cancel-btn" class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);">Cancel</button>
+        <button id="revoke-confirm-btn" class="btn-sm btn-revoke">Confirm Revocation</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login • Spoutin PKI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-header">
+      <img src="/static/logo.svg" alt="Spoutin PKI Logo" class="login-logo">
+      <h1>Spoutin PKI Admin</h1>
+      <p>Secure Certificate Management & Revocation Command Center</p>
+    </div>
+
+    <div class="login-content">
+      <p class="login-instruction">
+        Sign in with your authorized Slack workspace account to access the administrative dashboard.
+      </p>
+
+      <a href="/admin/auth/login" class="slack-login-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M6 15a2.5 2.5 0 1 0-2.5-2.5v2.5H6zm1-2.5a2.5 2.5 0 0 0 2.5 2.5h2.5v-2.5A2.5 2.5 0 0 0 9.5 10H7v2.5z" fill="#E01E5A"/>
+          <path d="M9 6a2.5 2.5 0 1 0-2.5 2.5h2.5V6zm2.5 1a2.5 2.5 0 0 0-2.5 2.5v2.5h2.5a2.5 2.5 0 0 0 2.5-2.5V7h-2.5z" fill="#36C5F0"/>
+          <path d="M18 9a2.5 2.5 0 1 0 2.5 2.5V9H18zm-1 2.5a2.5 2.5 0 0 0-2.5-2.5h-2.5v2.5A2.5 2.5 0 0 0 14.5 14H17v-2.5z" fill="#2EB67D"/>
+          <path d="M15 18a2.5 2.5 0 1 0 2.5-2.5H15V18zm-2.5-1a2.5 2.5 0 0 0 2.5-2.5v-2.5h-2.5a2.5 2.5 0 0 0-2.5 2.5V17h2.5z" fill="#ECB22E"/>
+        </svg>
+        Sign in with Slack
+      </a>
+
+      <div class="login-footer-hint">
+        Restricted to email addresses configured in <code>ADMIN_SLACK_EMAILS</code>.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
