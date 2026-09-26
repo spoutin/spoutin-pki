@@ -102,6 +102,18 @@ class UpdateVlanRequestBody(BaseModel):
     vlan_id: int
 
 
+REVOCATION_REASON_LABELS = {
+    "cessationOfOperation": "Decommissioned / Retired",
+    "keyCompromise": "Key Compromise",
+    "affiliationChanged": "Device Lost or Stolen",
+    "superseded": "Superseded by New Cert",
+    "privilegeWithdrawn": "Access Withdrawn",
+    "unspecified": "Revoked (Unspecified)",
+    "certificateHold": "Certificate Hold",
+    "cACompromise": "CA Compromise",
+}
+
+
 def sync_radius_vlans(
     db: CertificateDatabase,
     rc: Optional[FreeRadiusClient],
@@ -197,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.6",
+        version="0.2.7",
         lifespan=lifespan,
     )
 
@@ -630,13 +642,17 @@ def create_app(
         offset: int = Query(0, ge=0),
         admin: dict = Depends(require_admin),
     ):
-        return db.list_certificates(
+        certs = db.list_certificates(
             status=status,
             search=search,
             vlan_id=vlan_id,
             limit=limit,
             offset=offset,
         )
+        for c in certs:
+            reason = c.get("revocation_reason")
+            c["revocation_reason_label"] = REVOCATION_REASON_LABELS.get(reason, reason) if reason else None
+        return certs
 
     @app.post("/api/admin/certificates/{serial}/revoke")
     def revoke_certificate_endpoint(

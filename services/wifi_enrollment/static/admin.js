@@ -28,6 +28,22 @@
   const editApproveModal = document.getElementById("edit-approve-modal");
   const editDeviceNameInput = document.getElementById("edit-device-name");
   const editVlanSelect = document.getElementById("edit-vlan-select");
+  const REVOCATION_REASON_LABELS = {
+    cessationOfOperation: "Decommissioned / Retired",
+    keyCompromise: "Key Compromise",
+    affiliationChanged: "Device Lost or Stolen",
+    superseded: "Superseded by New Cert",
+    privilegeWithdrawn: "Access Withdrawn",
+    unspecified: "Revoked (Unspecified)",
+    certificateHold: "Certificate Hold",
+    cACompromise: "CA Compromise",
+  };
+
+  function formatRevocationReason(reason) {
+    if (!reason) return "Revoked";
+    return REVOCATION_REASON_LABELS[reason] || reason;
+  }
+
   const modalCancelBtn = document.getElementById("modal-cancel-btn");
   const modalConfirmApproveBtn = document.getElementById("modal-confirm-approve-btn");
   const editApproveWarning = document.getElementById("edit-approve-warning");
@@ -311,8 +327,9 @@
           ? `<span class="badge badge-vlan">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`
           : `<span class="badge badge-vlan clickable" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}" title="Click to edit VLAN assignment">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`;
 
+        const reasonDisplay = c.revocation_reason_label || formatRevocationReason(c.revocation_reason);
         const actionHtml = isRevoked
-          ? `<span class="hint" style="color: var(--text-muted);">${escapeHtml(c.revocation_reason || "Revoked")}</span>`
+          ? `<span class="badge" style="font-size: 0.72rem; font-weight: normal; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); white-space: nowrap;" title="Revocation Reason: ${escapeHtml(c.revocation_reason || 'Revoked')}">${escapeHtml(reasonDisplay)}</span>`
           : `<button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
              <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
 

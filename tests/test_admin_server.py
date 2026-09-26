@@ -163,6 +163,13 @@ def test_admin_revocation_cert_only(admin_test_app):
     assert cert["status"] == "REVOKED"
     assert cert["revocation_scope"] == "CERT_ONLY"
 
+    list_resp = client.get("/api/admin/certificates?status=revoked")
+    assert list_resp.status_code == 200
+    revoked_certs = list_resp.json()
+    assert len(revoked_certs) == 1
+    assert revoked_certs[0]["revocation_reason"] == "keyCompromise"
+    assert revoked_certs[0]["revocation_reason_label"] == "Key Compromise"
+
 
 def test_admin_revocation_user_and_cert(admin_test_app):
     client, sm, db, step_client, radius_client, _ = admin_test_app
