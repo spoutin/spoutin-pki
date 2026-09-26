@@ -38,12 +38,24 @@ def test_build_enrollment_blocks(mock_clients):
 
     blocks = handler.build_enrollment_blocks(record)
     assert len(blocks) >= 3
+
+    # Verify Target VLAN field exists in the section
+    section_block = [b for b in blocks if b.get("type") == "section"][0]
+    field_texts = [f.get("text", "") for f in section_block.get("fields", [])]
+    assert any("Target VLAN" in t for t in field_texts)
+    assert any("SemiPrivate" in t for t in field_texts)
+
     # Verify action buttons exist
     action_block = [b for b in blocks if b.get("type") == "actions"][0]
-    action_ids = [elem.get("action_id") for elem in action_block.get("elements", [])]
+    elements = action_block.get("elements", [])
+    action_ids = [elem.get("action_id") for elem in elements]
     assert "quick_approve" in action_ids
     assert "open_edit_modal" in action_ids
     assert "reject_request" in action_ids
+
+    # Verify Quick Approve button text has the cleaner "⚡ Quick Approve" label
+    quick_btn = [elem for elem in elements if elem.get("action_id") == "quick_approve"][0]
+    assert quick_btn["text"]["text"] == "⚡ Quick Approve"
 
 
 def test_build_edit_modal(mock_clients):

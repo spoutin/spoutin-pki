@@ -63,9 +63,10 @@ class SlackEnrollmentHandler:
                 "type": "section",
                 "fields": [
                     {"type": "mrkdwn", "text": f"*Device Name:*\n`{record.device_name}`"},
-                    {"type": "mrkdwn", "text": f"*Status:*\n{status_note}"},
+                    {"type": "mrkdwn", "text": "*Target VLAN:*\n`8` (SemiPrivate - Default)"},
                     {"type": "mrkdwn", "text": f"*Platform:*\n{record.platform.value.capitalize()}"},
                     {"type": "mrkdwn", "text": f"*Client IP:*\n`{record.client_ip}`"},
+                    {"type": "mrkdwn", "text": f"*Status:*\n{status_note}"},
                 ],
             },
             {
@@ -75,7 +76,7 @@ class SlackEnrollmentHandler:
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "⚡ Quick Approve (VLAN 8)",
+                            "text": "⚡ Quick Approve",
                             "emoji": True,
                         },
                         "style": "primary",

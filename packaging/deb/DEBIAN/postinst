@@ -49,6 +49,17 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
     echo "Enabling systemd services for spoutin-pki..."
     systemctl enable caddy.service wifi-enrollment.service spoutin-pki.target || true
+
+    # Automatically restart services on package upgrade so they stay active
+    if systemctl is-enabled --quiet caddy 2>/dev/null; then
+        echo "Restarting caddy service..."
+        systemctl restart caddy || true
+    fi
+    if systemctl is-enabled --quiet wifi-enrollment 2>/dev/null; then
+        echo "Restarting wifi-enrollment service..."
+        systemctl restart wifi-enrollment || true
+    fi
+
     echo "wifi-enrollment and caddy installed successfully."
     echo ""
     echo "Next steps:"
