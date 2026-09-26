@@ -30,6 +30,42 @@ fi
 # Link .env to service directory
 ln -sf /etc/wifi-enrollment/.env /opt/wifi-enrollment/.env
 
+# Check and auto-configure step-ca ca.json for CRL support
+STEP_CA_JSON="/etc/step-ca/config/ca.json"
+if [ -f "$STEP_CA_JSON" ]; then
+    CHANGED=0
+    python3 - << 'EOF' || true
+import json, sys
+
+path = "/etc/step-ca/config/ca.json"
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    crl = data.get("crl")
+    if not isinstance(crl, dict) or not crl.get("enabled"):
+        print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
+        data["crl"] = {
+            "enabled": True,
+            "generateOnRevoke": True,
+            "cacheDuration": "24h"
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        print("Updated ca.json with CRL configuration.")
+        sys.exit(10)
+except Exception as e:
+    print(f"Notice: Could not auto-update ca.json: {e}")
+EOF
+    if [ $? -eq 10 ]; then
+        if command -v systemctl >/dev/null 2>&1; then
+            echo "Restarting step-ca to activate CRL generation..."
+            systemctl restart step-ca || true
+        fi
+    fi
+fi
+
 # Install uv package manager if missing
 if ! command -v uv >/dev/null 2>&1 && [ ! -x /usr/local/bin/uv ]; then
     echo "Installing uv package manager..."

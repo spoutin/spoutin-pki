@@ -257,7 +257,7 @@ class CertificateDatabase:
             cur.execute("SELECT COUNT(*) FROM certificates WHERE status = 'REVOKED'")
             revoked = cur.fetchone()[0]
 
-            cur.execute("SELECT vlan_id, COUNT(*) FROM certificates GROUP BY vlan_id")
+            cur.execute("SELECT vlan_id, COUNT(*) FROM certificates WHERE status = 'ACTIVE' GROUP BY vlan_id")
             vlan_rows = cur.fetchall()
             by_vlan = {int(r[0]): r[1] for r in vlan_rows}
 

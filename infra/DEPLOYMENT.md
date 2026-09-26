@@ -33,6 +33,31 @@ uv sync
 
 ---
 
+## 2b. Enable CRL Generation in step-ca
+
+*Note: If installing via the unified `.deb` package, this step is handled automatically by the package installer.*
+
+Ensure `/etc/step-ca/config/ca.json` includes the `"crl"` block alongside `"db"`:
+
+```json
+  "db": {
+    "type": "badgerv2",
+    "dataSource": "/etc/step-ca/db"
+  },
+  "crl": {
+    "enabled": true,
+    "generateOnRevoke": true,
+    "cacheDuration": "24h"
+  },
+```
+
+Then restart `step-ca` to activate CRL generation:
+```bash
+systemctl restart step-ca
+```
+
+---
+
 ## 3. Configure Environment Variables
 
 Create `/opt/spoutin-pki/.env`:

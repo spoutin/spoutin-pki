@@ -180,6 +180,14 @@ class StepCaClient:
             with open(self.ca_config_path, "r", encoding="utf-8") as f:
                 ca_json = json.load(f)
 
+            crl_cfg = ca_json.get("crl")
+            if not isinstance(crl_cfg, dict) or not crl_cfg.get("enabled"):
+                logger.warning(
+                    "step-ca configuration (%s) does not have 'crl.enabled: true'. "
+                    "CRL endpoints (/crl and /crl.pem) will return 404 until CRL generation is enabled in ca.json.",
+                    self.ca_config_path,
+                )
+
             provisioners = ca_json.get("authority", {}).get("provisioners", [])
             target = None
             for p in provisioners:

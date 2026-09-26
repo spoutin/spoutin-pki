@@ -133,7 +133,7 @@ def test_get_stats(db):
     assert stats["total"] == 2
     assert stats["active"] == 1
     assert stats["revoked"] == 1
-    assert stats["by_vlan"][8] == 2
+    assert stats["by_vlan"][8] == 1
 
 
 def test_update_certificate_vlan(db):
