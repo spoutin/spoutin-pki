@@ -238,6 +238,7 @@ def test_revoke_certificate_success(mock_post):
     assert payload["serial"] == "998877665544"
     assert payload["reason"] == "keyCompromise"
     assert payload["reasonCode"] == 1
+    assert payload["passive"] is True
     assert "ott" in payload
 
 

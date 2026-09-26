@@ -196,7 +196,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.3",
+        version="0.2.4",
         lifespan=lifespan,
     )
 

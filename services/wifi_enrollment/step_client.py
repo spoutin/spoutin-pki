@@ -327,13 +327,19 @@ class StepCaClient:
         audiences = [
             "step-certificate-authority",
             f"https://step-ca.{self.domain}/1.0/revoke",
+            f"https://step-ca.{self.domain}/revoke",
             f"https://{self.domain}/1.0/revoke",
+            f"https://{self.domain}/revoke",
             "https://step-ca/1.0/revoke",
+            "https://step-ca/revoke",
             "https://localhost/1.0/revoke",
+            "https://localhost/revoke",
         ]
         if ca_host not in ("step-ca", "localhost"):
             audiences.append(f"https://{ca_host}/1.0/revoke")
+            audiences.append(f"https://{ca_host}/revoke")
         audiences.append(f"{self.ca_url}/1.0/revoke")
+        audiences.append(f"{self.ca_url}/revoke")
 
         clean_audiences = []
         seen = set()
@@ -386,6 +392,7 @@ class StepCaClient:
             "serial": str(serial_number),
             "reason": reason,
             "reasonCode": reason_code,
+            "passive": True,
             "ott": token,
         }
 
