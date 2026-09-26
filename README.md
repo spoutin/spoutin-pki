@@ -35,7 +35,7 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 
 ---
 
-### 2. Slack App Setup (Socket Mode)
+### 2. Slack App Setup (Socket Mode & Admin OAuth)
 
 1. Navigate to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App** → **From scratch**. Name it `WiFi Enrollment Bot`.
 2. Under **Settings → Socket Mode**:
@@ -50,11 +50,18 @@ This section details how to install and configure the **`wifi-enrollment`** serv
    * Under **User Token Scopes** (for Admin Web Dashboard login):
      * `openid`, `email`, `profile`
    * Under **Redirect URLs**:
-     * Add `https://wifi.int.spoutin.org/admin/auth/callback`
-   * Click **Install to Workspace** (or **Reinstall to Workspace**).
+     * Click **Add New Redirect URL** and enter:
+       ```text
+       https://wifi.int.spoutin.org/admin/auth/callback
+       ```
+     * Click **Add**, then click **Save URLs**.
+     * ⚠️ **CRITICAL:** You *must* click the green **Save URLs** button after adding the URL! If you navigate away without clicking **Save URLs**, Slack discards the URL and dashboard logins will fail with `redirect_uri did not match any configured URIs`.
+   * Click **Install to Workspace** (or **Reinstall to Workspace** at the top of the page).
    * Copy the Bot User OAuth Token starting with `xoxb-...` (this is `SLACK_BOT_TOKEN`).
 5. Under **Settings → Basic Information**:
-   * Copy **Client ID** (`SLACK_CLIENT_ID`) and **Client Secret** (`SLACK_CLIENT_SECRET`).
+   * Scroll to the **App Credentials** section.
+   * Copy the **Client ID** (this is `SLACK_CLIENT_ID`).
+   * Click **Show** and copy the **Client Secret** (this is `SLACK_CLIENT_SECRET`).
 6. In your Slack client:
    * Create or open your private admin notifications channel (e.g., `#wifi-approvals`).
    * Invite the bot: `/invite @WiFi Enrollment Bot`.
@@ -78,18 +85,26 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 
 The GitHub Actions workflow builds a unified `.deb` package containing the custom Caddy binary (with Cloudflare DNS), `wifi-enrollment` service, systemd units, and boilerplate configs.
 
-1. **Download the latest `.deb` package** from your repository's GitHub Releases (or GitHub Actions artifacts).
+1. **Download the latest `.deb` package** from your repository's [GitHub Releases](https://github.com/spoutin/spoutin-pki/releases).
 2. **Install on the `step-ca` LXC:**
    ```bash
-   dpkg -i wifi-enrollment_0.1.0_amd64.deb
+   dpkg -i wifi-enrollment_0.2.0_amd64.deb
    ```
-   *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, and configures systemd.*
+   *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and configures systemd.*
 
 3. **Configure Environment (`/etc/wifi-enrollment/.env`):**
    ```bash
    nano /etc/wifi-enrollment/.env
    ```
-   Fill in your `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, and `SLACK_*` tokens.
+   Fill in your `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, Slack tokens, and admin OAuth settings:
+   ```ini
+   # Slack OAuth & Admin Web Portal
+   SLACK_CLIENT_ID=your_slack_client_id
+   SLACK_CLIENT_SECRET=your_slack_client_secret
+   ADMIN_SLACK_EMAILS=adam@spoutin.org,admin@spoutin.org
+   SESSION_SECRET_KEY=change-this-to-any-random-string
+   DATABASE_PATH=/opt/wifi-enrollment/data/inventory.db
+   ```
 
 4. **Configure Cloudflare API Token for Caddy:**
    ```bash
@@ -165,6 +180,13 @@ OPNSENSE_VERIFY_SSL=false
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 SLACK_CHANNEL_ID=C0XXXXXXXXX
+
+# Slack OAuth & Admin Web Portal
+SLACK_CLIENT_ID=1234567890.9876543210
+SLACK_CLIENT_SECRET=your_slack_client_secret
+ADMIN_SLACK_EMAILS=adam@spoutin.org,admin@spoutin.org
+SESSION_SECRET_KEY=change-this-to-a-random-secret
+DATABASE_PATH=/opt/wifi-enrollment/data/inventory.db
 ```
 
 Install the systemd service units and target:
@@ -248,4 +270,53 @@ If manually deploying Caddy without the `.deb`:
 6. In OPNsense:
    * Check **Services → FreeRADIUS → Users** and verify `ablack-phone` is registered with the selected VLAN.
 7. Import the `.p12` bundle on the device and connect to your 802.1X SSID.
+
+---
+
+### 8. Admin Command Center & Certificate Revocation
+
+The web portal includes an administrative command center at `https://wifi.int.spoutin.org/admin`.
+
+#### Access & Authentication
+1. Navigate to `https://wifi.int.spoutin.org/admin`. Unauthenticated requests redirect to `/admin/login`.
+2. Click **Sign in with Slack**.
+3. Upon completing OAuth with Slack, the service verifies that your Slack email address is listed in `ADMIN_SLACK_EMAILS` (comma-separated list in `.env`).
+4. An encrypted, HttpOnly 24-hour session cookie (`wifi_admin_session`) is issued. Unauthorized Slack users receive a `403 Forbidden` screen.
+
+#### Live Request Approvals with Slack Synchronization
+* **Live Polling:** The dashboard displays pending enrollment requests in real time (refreshed every 5 seconds).
+* **Action Buttons:** Administrators can click:
+  * **`[ ⚡ Quick (VLAN 8) ]`**: Immediately approves the request for VLAN 8.
+  * **`[ ✏️ Edit ]`**: Opens a modal to customize the device name or select an alternate VLAN (LAN, DMS, SemiPrivate, IoT).
+  * **`[ ❌ Reject ]`**: Rejects the pending request.
+* **Bi-Directional Slack Sync:** Approving or rejecting a request from the web dashboard automatically finds the corresponding Slack notification card in your `#wifi-approvals` channel and updates it in-place (e.g., `✅ Approved by @admin via Web Dashboard`).
+
+#### Certificate Inventory & Real-Time Filtering
+* Displays all active and revoked certificates recorded in the SQLite inventory (`data/inventory.db`).
+* Displays Device Name, Platform, Assigned VLAN, Client IP, Serial Number, Issued Date, and Expiration Date.
+* Filter certificates instantly using the search input, Status filter (`All`, `Active`, `Revoked`), or VLAN filter.
+
+#### Two-Option Revocation Workflow
+Click the red **Revoke** button next to any active certificate to open the revocation modal with two distinct options:
+
+1. **`Revoke Certificate Only (CRL)`**:
+   * Generates an ES256 revocation token and invokes `step-ca` (`POST /1.0/revoke`).
+   * The certificate serial is immediately added to the Certificate Revocation List (CRL).
+   * The user account in OPNsense FreeRADIUS is left intact.
+2. **`Revoke Certificate & Delete FreeRADIUS User`**:
+   * Revokes the certificate in `step-ca` (adding it to the CRL).
+   * Queries the OPNsense FreeRADIUS API for the user's UUID and executes `POST /api/freeradius/user/delUser/{uuid}`.
+   * Reloads the FreeRADIUS service (`POST /api/freeradius/service/reconfigure`) so the user can no longer authenticate under any credentials.
+
+*(Note: Per design, revocations update the database and dashboard silently without posting noisy alerts to Slack).*
+
+#### Public CRL Distribution
+The service and reverse proxy expose the `step-ca` CRL publicly on your internal domain:
+* **`https://wifi.int.spoutin.org/crl`** (DER / raw format)
+* **`https://wifi.int.spoutin.org/crl.pem`** (PEM formatted CRL)
+
+To verify the CRL or inspect revoked serial numbers:
+```bash
+curl -s https://wifi.int.spoutin.org/crl.pem | openssl crl -text -noout
+```
 
