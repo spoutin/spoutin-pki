@@ -63,3 +63,42 @@ def test_reconfigure_service_success(mock_post):
 
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
     assert client.reconfigure_service() is True
+
+
+@patch("requests.Session.post")
+def test_get_user_uuid(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "rows": [
+            {"username": "ablack-phone", "uuid": "uuid-1234-abcd"},
+        ]
+    }
+    mock_post.return_value = mock_resp
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    assert client.get_user_uuid("ablack-phone") == "uuid-1234-abcd"
+    assert client.get_user_uuid("missing") is None
+
+
+@patch("requests.Session.post")
+def test_delete_user_success(mock_post):
+    search_resp = MagicMock()
+    search_resp.status_code = 200
+    search_resp.json.return_value = {
+        "rows": [{"username": "ablack-phone", "uuid": "uuid-1234-abcd"}]
+    }
+
+    del_resp = MagicMock()
+    del_resp.status_code = 200
+    del_resp.json.return_value = {"result": "deleted"}
+
+    reconfig_resp = MagicMock()
+    reconfig_resp.status_code = 200
+    reconfig_resp.json.return_value = {"status": "ok"}
+
+    mock_post.side_effect = [search_resp, del_resp, reconfig_resp]
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    assert client.delete_user("ablack-phone") is True
+

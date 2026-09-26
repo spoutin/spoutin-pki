@@ -45,6 +45,47 @@ class FreeRadiusClient:
             # If search fails, log or raise appropriately
             return False
 
+    def get_user_uuid(self, username: str) -> Optional[str]:
+        """Finds and returns the OPNsense internal UUID for a FreeRADIUS user."""
+        endpoint = f"{self.url}/api/freeradius/user/searchUser"
+        try:
+            resp = self.session.post(
+                endpoint,
+                auth=self.auth,
+                verify=self.verify_ssl,
+                json={"searchPhrase": username},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for row in data.get("rows", []):
+                if row.get("username") == username:
+                    return row.get("uuid")
+        except Exception:
+            pass
+        return None
+
+    def delete_user(self, username: str) -> bool:
+        """Deletes a user from OPNsense FreeRADIUS and reconfigures the service."""
+        user_uuid = self.get_user_uuid(username)
+        if not user_uuid:
+            return True
+
+        endpoint = f"{self.url}/api/freeradius/user/delUser/{user_uuid}"
+        resp = self.session.post(
+            endpoint,
+            auth=self.auth,
+            verify=self.verify_ssl,
+            json={},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("result") in ("deleted", "not found"):
+            self.reconfigure_service()
+            return True
+        return False
+
     def add_user(
         self,
         username: str,
