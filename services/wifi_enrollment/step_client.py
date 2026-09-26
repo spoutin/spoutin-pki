@@ -297,12 +297,23 @@ class StepCaClient:
 
         data = resp.json()
 
-        leaf_pem = data.get("serverPem", "").encode("utf-8")
+        # step-ca SignResponse schema: {"crt": "...", "ca": "...", "certChain": ["..."]}
+        raw_leaf = data.get("crt") or data.get("serverPem") or data.get("certificate") or ""
+        if not raw_leaf:
+            raise ValueError(f"step-ca response missing certificate ('crt'): keys in response are {list(data.keys())}")
+
+        leaf_pem = raw_leaf.encode("utf-8") if isinstance(raw_leaf, str) else raw_leaf
+
         chain_list = []
-        if "certChainPem" in data and isinstance(data["certChainPem"], list):
-            chain_list = [c.encode("utf-8") for c in data["certChainPem"]]
-        elif "caPem" in data and data["caPem"]:
-            chain_list = [data["caPem"].encode("utf-8")]
+        raw_chain = data.get("certChain") or data.get("certChainPem")
+        if raw_chain and isinstance(raw_chain, list):
+            chain_list = [c.encode("utf-8") if isinstance(c, str) else c for c in raw_chain]
+        elif data.get("ca"):
+            raw_ca = data.get("ca")
+            chain_list = [raw_ca.encode("utf-8") if isinstance(raw_ca, str) else raw_ca]
+        elif data.get("caPem"):
+            raw_ca = data.get("caPem")
+            chain_list = [raw_ca.encode("utf-8") if isinstance(raw_ca, str) else raw_ca]
 
         return leaf_pem, chain_list
 
@@ -316,15 +327,20 @@ class StepCaClient:
         friendly_name: str = "Wi-Fi Certificate",
     ) -> bytes:
         """Packages private key, leaf cert, and CA chain into an encrypted PKCS#12 bundle."""
+        if not cert_pem or not cert_pem.strip():
+            raise ValueError("Cannot build PKCS#12 bundle: leaf certificate PEM is empty.")
+
         leaf_cert = x509.load_pem_x509_certificate(cert_pem)
-        inter_cert = x509.load_pem_x509_certificate(intermediate_pem)
-        root_cert = x509.load_pem_x509_certificate(root_pem)
+        inter_cert = x509.load_pem_x509_certificate(intermediate_pem) if intermediate_pem and intermediate_pem.strip() else None
+        root_cert = x509.load_pem_x509_certificate(root_pem) if root_pem and root_pem.strip() else None
+
+        cas = [c for c in [inter_cert, root_cert] if c is not None]
 
         p12_bytes = pkcs12.serialize_key_and_certificates(
             name=friendly_name.encode("utf-8"),
             key=private_key,
             cert=leaf_cert,
-            cas=[inter_cert, root_cert],
+            cas=cas,
             encryption_algorithm=serialization.BestAvailableEncryption(pin.encode("utf-8")),
         )
         return p12_bytes

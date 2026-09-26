@@ -96,9 +96,9 @@ def test_sign_csr_success(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 201
     mock_resp.json.return_value = {
-        "serverPem": leaf_pem_str,
-        "caPem": inter_pem_str,
-        "certChainPem": [inter_pem_str],
+        "crt": leaf_pem_str,
+        "ca": inter_pem_str,
+        "certChain": [leaf_pem_str, inter_pem_str],
     }
     mock_post.return_value = mock_resp
 
@@ -109,7 +109,7 @@ def test_sign_csr_success(mock_post):
     )
 
     assert leaf_out.startswith(b"-----BEGIN CERTIFICATE-----")
-    assert len(chain_out) == 1
+    assert len(chain_out) == 2
 
 
 def test_pure_python_token_generation():
