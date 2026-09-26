@@ -148,3 +148,11 @@ def test_index_page(test_app):
     logo_resp = client.get("/static/logo.svg")
     assert logo_resp.status_code == 200
     assert "<svg" in logo_resp.text
+
+
+def test_status_events_endpoint(test_app):
+    client, sm, _ = test_app
+    rec = sm.create_request("dev-sse", DevicePlatform.ANDROID, "10.0.0.5")
+
+    resp404 = client.get("/api/status/non-existent-id/events")
+    assert resp404.status_code == 404

@@ -58,8 +58,8 @@
         </button>
       </div>
       <div class="sync-group">
-        <span class="live-indicator" title="Auto-refreshing every 3 seconds">
-          <span class="pulse-dot"></span> Live Sync
+        <span class="live-indicator" id="live-indicator" title="Connected to Server-Sent Events (SSE)">
+          <span class="pulse-dot" id="pulse-dot"></span> <span id="live-text">Live (SSE)</span>
         </span>
         <button id="btn-refresh" class="btn-refresh" title="Refresh all data now">
           <span class="refresh-icon">🔄</span> Refresh

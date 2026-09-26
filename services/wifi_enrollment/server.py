@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import secrets
@@ -8,11 +9,15 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+from services.wifi_enrollment.broadcaster import EventBroadcaster
 
 from services.wifi_enrollment.auth import (
     create_session_token,
@@ -98,6 +103,7 @@ def create_app(
     step_client: Optional[StepCaClient] = None,
     radius_client: Optional[FreeRadiusClient] = None,
     database: Optional[CertificateDatabase] = None,
+    broadcaster: Optional[EventBroadcaster] = None,
 ) -> FastAPI:
     sm = state_manager or StateManager(
         ttl_seconds=settings.REQUEST_TTL_SECONDS,
@@ -106,6 +112,7 @@ def create_app(
     db = database or CertificateDatabase(settings.DATABASE_PATH)
     sc = step_client
     rc = radius_client
+    bc = broadcaster or EventBroadcaster()
 
     rate_limiter = SlidingWindowRateLimiter(
         max_requests=settings.RATE_LIMIT_REQUESTS,
@@ -116,6 +123,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        bc.set_loop(asyncio.get_running_loop())
         socket_handler = getattr(app.state, "socket_mode_handler", None)
         if socket_handler:
             def run_socket_mode():
@@ -134,7 +142,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.1",
+        version="0.2.2",
         lifespan=lifespan,
     )
 
@@ -145,21 +153,36 @@ def create_app(
         allow_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def add_no_cache_headers(request: Request, call_next):
-        response = await call_next(request)
-        path = request.url.path
-        if path.startswith("/api/admin") or path.startswith("/api/status"):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-        return response
+    class NoCacheASGIMiddleware:
+        def __init__(self, asgi_app: ASGIApp):
+            self.app = asgi_app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope["type"] != "http":
+                return await self.app(scope, receive, send)
+
+            path = scope.get("path", "")
+            if (path.startswith("/api/admin") or path.startswith("/api/status")) and not path.endswith("/events"):
+                async def send_wrapper(message):
+                    if message["type"] == "http.response.start":
+                        headers = list(message.get("headers", []))
+                        headers.append((b"cache-control", b"no-store, no-cache, must-revalidate, max-age=0"))
+                        headers.append((b"pragma", b"no-cache"))
+                        headers.append((b"expires", b"0"))
+                        message["headers"] = headers
+                    await send(message)
+                return await self.app(scope, receive, send_wrapper)
+
+            return await self.app(scope, receive, send)
+
+    app.add_middleware(NoCacheASGIMiddleware)
 
     app.state.state_manager = sm
     app.state.slack_handler = slack_handler
     app.state.step_client = sc
     app.state.radius_client = rc
     app.state.database = db
+    app.state.broadcaster = bc
 
     # Mount static assets if directory exists
     if os.path.exists(static_dir):
@@ -225,11 +248,38 @@ def create_app(
                     detail=f"Failed to notify administrator via Slack: {e}. Please contact your network administrator.",
                 )
 
+        # Notify admin dashboard subscribers via SSE
+        bc.publish_admin(
+            event="request_created",
+            data={
+                "request_id": record.request_id,
+                "device_name": record.device_name,
+                "platform": record.platform.value,
+                "client_ip": record.client_ip,
+            },
+        )
+
         return {
             "request_id": record.request_id,
             "device_name": record.device_name,
             "status": record.status.value,
         }
+
+    @app.get("/api/status/{request_id}/events")
+    async def stream_request_status_events(request_id: str):
+        record = sm.get_request(request_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Request not found or expired")
+
+        return StreamingResponse(
+            bc.subscribe_request(request_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/status/{request_id}", response_model=StatusResponse)
     def check_status(request_id: str):
@@ -376,6 +426,18 @@ def create_app(
             "picture": admin.get("picture"),
         }
 
+    @app.get("/api/admin/events")
+    async def stream_admin_events(admin: dict = Depends(require_admin)):
+        return StreamingResponse(
+            bc.subscribe_admin(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.get("/api/admin/stats")
     def get_dashboard_stats(admin: dict = Depends(require_admin)):
         return db.get_stats()
@@ -461,6 +523,17 @@ def create_app(
 
         sm.reject_request(request_id, reason=body.reason or "Rejected by administrator from web dashboard.")
 
+        # Notify waiting client & admin stream
+        bc.publish_request(
+            request_id=request_id,
+            event="rejected",
+            data={"status": "rejected", "request_id": request_id, "message": body.reason or "Request was rejected by administrator."},
+        )
+        bc.publish_admin(
+            event="request_rejected",
+            data={"request_id": request_id, "device_name": record.device_name},
+        )
+
         handler: Optional[SlackEnrollmentHandler] = app.state.slack_handler
         if handler and record.slack_channel_id and record.slack_message_ts:
             handler._update_channel_message(
@@ -524,6 +597,12 @@ def create_app(
         # 3. Update database record
         db.revoke_certificate(serial, reason=body.reason, scope=body.scope)
 
+        # Notify admin dashboard via SSE
+        bc.publish_admin(
+            event="cert_revoked",
+            data={"serial_number": serial, "reason": body.reason, "scope": body.scope},
+        )
+
         return {
             "status": "revoked",
             "serial": serial,
@@ -562,13 +641,26 @@ def init_production_app() -> FastAPI:
 
     slack_handler = None
     socket_mode_handler = None
+    broadcaster = EventBroadcaster()
 
     if settings.SLACK_BOT_TOKEN and settings.SLACK_APP_TOKEN:
         logger.info(
             f"Configuring Slack Bot token ({settings.SLACK_BOT_TOKEN[:9]}...) "
             f"and Socket Mode token ({settings.SLACK_APP_TOKEN[:9]}...) for channel {settings.SLACK_CHANNEL_ID}"
         )
-        bolt_app = App(token=settings.SLACK_BOT_TOKEN)
+        # Temporarily mask SLACK_CLIENT_ID and SLACK_CLIENT_SECRET from os.environ
+        # while instantiating Bolt App. Otherwise Bolt auto-detects them and attempts
+        # to configure multi-team distributed OAuth with an InstallationStore, ignoring
+        # SLACK_BOT_TOKEN and breaking single-team Socket Mode button authorization.
+        env_cid = os.environ.pop("SLACK_CLIENT_ID", None)
+        env_csec = os.environ.pop("SLACK_CLIENT_SECRET", None)
+        try:
+            bolt_app = App(token=settings.SLACK_BOT_TOKEN)
+        finally:
+            if env_cid is not None:
+                os.environ["SLACK_CLIENT_ID"] = env_cid
+            if env_csec is not None:
+                os.environ["SLACK_CLIENT_SECRET"] = env_csec
         slack_handler = SlackEnrollmentHandler(
             app=bolt_app,
             state_manager=sm,
@@ -576,6 +668,7 @@ def init_production_app() -> FastAPI:
             radius_client=radius_client,
             channel_id=settings.SLACK_CHANNEL_ID,
             database=db,
+            broadcaster=broadcaster,
         )
         socket_mode_handler = SocketModeHandler(
             app=bolt_app,
@@ -592,6 +685,7 @@ def init_production_app() -> FastAPI:
         step_client=step_client,
         radius_client=radius_client,
         database=db,
+        broadcaster=broadcaster,
     )
     if socket_mode_handler:
         app.state.socket_mode_handler = socket_mode_handler

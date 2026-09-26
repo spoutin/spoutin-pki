@@ -200,3 +200,10 @@ def test_admin_html_pages(admin_test_app):
     unauth_resp = client.get("/admin", follow_redirects=False)
     assert unauth_resp.status_code == 302
     assert "/admin/login" in unauth_resp.headers["location"]
+
+
+def test_admin_events_stream_unauth(admin_test_app):
+    client, _, _, _, _, _ = admin_test_app
+    client.cookies.clear()
+    resp = client.get("/api/admin/events")
+    assert resp.status_code == 401

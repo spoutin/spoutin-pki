@@ -88,7 +88,7 @@ The GitHub Actions workflow builds a unified `.deb` package containing the custo
 1. **Download the latest `.deb` package** from your repository's [GitHub Releases](https://github.com/spoutin/spoutin-pki/releases).
 2. **Install on the `step-ca` LXC:**
    ```bash
-   dpkg -i wifi-enrollment_0.2.1_amd64.deb
+   dpkg -i wifi-enrollment_0.2.2_amd64.deb
    ```
    *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and configures systemd.*
 

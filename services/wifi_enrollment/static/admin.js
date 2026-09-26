@@ -41,6 +41,11 @@
   let activeRevokeSerial = null;
 
   const btnRefresh = document.getElementById("btn-refresh");
+  const liveIndicator = document.getElementById("live-indicator");
+  const liveText = document.getElementById("live-text");
+  const pulseDot = document.getElementById("pulse-dot");
+
+  let adminEventSource = null;
 
   // Helper for cache-busting fetch
   async function adminFetch(url, options = {}) {
@@ -58,15 +63,49 @@
     });
   }
 
+  // --- Server-Sent Events (SSE) Connection ---
+  function connectSSE() {
+    if (!window.EventSource) return;
+
+    if (adminEventSource) {
+      adminEventSource.close();
+    }
+
+    adminEventSource = new EventSource("/api/admin/events");
+
+    adminEventSource.addEventListener("connected", () => {
+      if (liveText) liveText.textContent = "Live (SSE)";
+      if (pulseDot) pulseDot.style.backgroundColor = "var(--success)";
+      if (liveIndicator) liveIndicator.title = "Connected to Server-Sent Events (instant push updates)";
+    });
+
+    const onServerUpdate = () => {
+      // Instantly refresh all dashboard components upon push notification
+      refreshAll(true);
+    };
+
+    adminEventSource.addEventListener("request_created", onServerUpdate);
+    adminEventSource.addEventListener("request_approved", onServerUpdate);
+    adminEventSource.addEventListener("request_rejected", onServerUpdate);
+    adminEventSource.addEventListener("cert_revoked", onServerUpdate);
+
+    adminEventSource.onerror = () => {
+      if (liveText) liveText.textContent = "Connecting...";
+      if (pulseDot) pulseDot.style.backgroundColor = "var(--warning)";
+      refreshAll(false);
+    };
+  }
+
   // --- Initial Setup ---
   async function init() {
     await fetchProfile();
     await refreshAll(true);
+    connectSSE();
 
-    // Auto-refresh requests, inventory, and stats every 3 seconds
+    // Low-frequency safety poll (every 60s) instead of aggressive polling
     setInterval(async () => {
       await refreshAll(false);
-    }, 3000);
+    }, 60000);
   }
 
   async function refreshAll(forceInventory = false) {

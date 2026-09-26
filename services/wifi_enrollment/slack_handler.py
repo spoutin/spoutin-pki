@@ -33,6 +33,7 @@ class SlackEnrollmentHandler:
         radius_client: FreeRadiusClient,
         channel_id: str,
         database: Optional[CertificateDatabase] = None,
+        broadcaster: Optional[Any] = None,
     ):
         self.app = app
         self.state_manager = state_manager
@@ -40,6 +41,7 @@ class SlackEnrollmentHandler:
         self.radius_client = radius_client
         self.channel_id = channel_id
         self.database = database
+        self.broadcaster = broadcaster
 
         self._register_handlers()
 
@@ -301,6 +303,26 @@ class SlackEnrollmentHandler:
             pin=pin,
         )
 
+        if self.broadcaster:
+            self.broadcaster.publish_request(
+                request_id=request_id,
+                event="approved",
+                data={
+                    "status": "approved",
+                    "request_id": request_id,
+                    "device_name": approved_name,
+                    "vlan_id": vlan.value,
+                    "vlan_label": vlan.label,
+                    "download_token": download_token,
+                    "pin": final_pin,
+                    "radius_identity": approved_name,
+                },
+            )
+            self.broadcaster.publish_admin(
+                event="request_approved",
+                data={"request_id": request_id, "device_name": approved_name, "vlan_id": vlan.value},
+            )
+
         return download_token, final_pin
 
     def post_enrollment_card(self, record: RequestRecord) -> tuple[str, str]:
@@ -438,6 +460,16 @@ class SlackEnrollmentHandler:
                 return
 
             self.state_manager.reject_request(request_id)
+            if self.broadcaster:
+                self.broadcaster.publish_request(
+                    request_id=request_id,
+                    event="rejected",
+                    data={"status": "rejected", "request_id": request_id, "message": "Request was rejected by administrator."},
+                )
+                self.broadcaster.publish_admin(
+                    event="request_rejected",
+                    data={"request_id": request_id, "device_name": record.device_name},
+                )
             self._update_channel_message(
                 channel=body["channel"]["id"],
                 ts=body["message"]["ts"],

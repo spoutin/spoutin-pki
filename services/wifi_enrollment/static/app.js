@@ -128,112 +128,143 @@
       showView(waitingView);
       hasAutoDownloaded = false;
 
-      // Start polling status
-      startPolling(data.request_id);
+      // Start instant listening via Server-Sent Events (SSE)
+      startListening(data.request_id);
     } catch (err) {
       formError.textContent = err.message;
       formError.classList.remove("hidden");
     }
   });
 
-  function startPolling(requestId) {
+  let activeEventSource = null;
+
+  function handleApproved(data) {
+    if (pollInterval) clearInterval(pollInterval);
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+
+    approvedPin.textContent = data.pin || "----";
+    approvedIdentity.textContent = data.radius_identity || data.device_name;
+    approvedDomain.textContent = data.radius_domain || "radius.int.spoutin.org";
+    approvedVlan.textContent = data.vlan_label || `VLAN ${data.vlan_id}`;
+
+    platformInstructions.innerHTML = getPlatformGuide(
+      data.platform,
+      data.radius_identity || data.device_name,
+      data.radius_domain || "radius.int.spoutin.org"
+    );
+
+    if (data.download_token) {
+      const dlUrl = `/api/download/${data.download_token}`;
+      manualDownloadBtn.href = dlUrl;
+
+      // Trigger auto-download once
+      if (!hasAutoDownloaded) {
+        hasAutoDownloaded = true;
+        const link = document.createElement("a");
+        link.href = dlUrl;
+        link.download = `${data.radius_identity || data.device_name}.p12`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    }
+
+    showView(approvedView);
+  }
+
+  function handleRejected(data) {
+    if (pollInterval) clearInterval(pollInterval);
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+    rejectTitle.textContent = "Request Rejected";
+    rejectReason.textContent = data.message || "Your enrollment request was rejected by an administrator.";
+    showView(rejectedView);
+  }
+
+  function startListening(requestId) {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
     if (pollInterval) clearInterval(pollInterval);
 
-    let pollAttempts = 0;
-    let consecutiveErrors = 0;
-    const MAX_POLL_ATTEMPTS = 450; // 15 minutes at 2s interval
-
-    pollInterval = setInterval(async () => {
-      pollAttempts++;
-      if (pollAttempts > MAX_POLL_ATTEMPTS) {
-        clearInterval(pollInterval);
-        rejectTitle.textContent = "Request Timed Out";
-        rejectReason.textContent = "Your request timed out waiting for administrator review. Please try again.";
-        showView(rejectedView);
-        return;
-      }
-
+    // 1. One-time immediate status check (also used on network reconnect)
+    async function checkStatusOnce() {
       try {
-        const resp = await fetch(`/api/status/${requestId}`);
-
+        const resp = await fetch(`/api/status/${requestId}?_t=${Date.now()}`, { cache: "no-store" });
         if (resp.status === 404 || resp.status === 410) {
-          clearInterval(pollInterval);
+          if (activeEventSource) activeEventSource.close();
+          if (pollInterval) clearInterval(pollInterval);
           rejectTitle.textContent = "Request Not Found";
           rejectReason.textContent = "Your enrollment request was not found or has expired.";
           showView(rejectedView);
           return;
         }
-
-        if (!resp.ok) {
-          consecutiveErrors++;
-          if (consecutiveErrors >= 5) {
-            clearInterval(pollInterval);
-            rejectTitle.textContent = "Connection Error";
-            rejectReason.textContent = "Lost connection to the enrollment server while waiting for status.";
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.status === "approved") {
+            handleApproved(data);
+          } else if (data.status === "rejected") {
+            handleRejected(data);
+          } else if (data.status === "expired") {
+            if (activeEventSource) activeEventSource.close();
+            if (pollInterval) clearInterval(pollInterval);
+            rejectTitle.textContent = "Request Expired";
+            rejectReason.textContent = "Your request expired while waiting for administrator review.";
             showView(rejectedView);
           }
-          return;
-        }
-
-        consecutiveErrors = 0;
-        const data = await resp.json();
-
-        if (data.status === "approved") {
-          clearInterval(pollInterval);
-
-          approvedPin.textContent = data.pin || "----";
-          approvedIdentity.textContent = data.radius_identity || data.device_name;
-          approvedDomain.textContent = data.radius_domain || "radius.int.spoutin.org";
-          approvedVlan.textContent = data.vlan_label || `VLAN ${data.vlan_id}`;
-
-          platformInstructions.innerHTML = getPlatformGuide(
-            data.platform,
-            data.radius_identity || data.device_name,
-            data.radius_domain || "radius.int.spoutin.org"
-          );
-
-          if (data.download_token) {
-            const dlUrl = `/api/download/${data.download_token}`;
-            manualDownloadBtn.href = dlUrl;
-
-            // Trigger auto-download once
-            if (!hasAutoDownloaded) {
-              hasAutoDownloaded = true;
-              const link = document.createElement("a");
-              link.href = dlUrl;
-              link.download = `${data.radius_identity || data.device_name}.p12`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            }
-          }
-
-          showView(approvedView);
-        } else if (data.status === "rejected") {
-          clearInterval(pollInterval);
-          rejectTitle.textContent = "Request Rejected";
-          rejectReason.textContent = data.message || "Your enrollment request was rejected by an administrator.";
-          showView(rejectedView);
-        } else if (data.status === "expired") {
-          clearInterval(pollInterval);
-          rejectTitle.textContent = "Request Expired";
-          rejectReason.textContent = "Your request expired while waiting for administrator review.";
-          showView(rejectedView);
         }
       } catch (err) {
-        console.error("Polling error:", err);
-        consecutiveErrors++;
-        if (consecutiveErrors >= 5) {
-          clearInterval(pollInterval);
-          rejectTitle.textContent = "Network Error";
-          rejectReason.textContent = "Unable to reach the enrollment server. Please check your network connection.";
-          showView(rejectedView);
-        }
+        console.error("Status check error:", err);
       }
-    }, 2000);
+    }
+
+    checkStatusOnce();
+
+    // 2. Real-time instant push updates via Server-Sent Events (SSE)
+    if (window.EventSource) {
+      activeEventSource = new EventSource(`/api/status/${requestId}/events`);
+
+      activeEventSource.addEventListener("approved", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handleApproved(data);
+        } catch (err) {
+          console.error("Error parsing approved SSE payload:", err);
+          checkStatusOnce();
+        }
+      });
+
+      activeEventSource.addEventListener("rejected", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handleRejected(data);
+        } catch (err) {
+          console.error("Error parsing rejected SSE payload:", err);
+          checkStatusOnce();
+        }
+      });
+
+      activeEventSource.onerror = () => {
+        // Triggers when mobile screen sleeps or connection blips; re-check status once
+        checkStatusOnce();
+      };
+    }
+
+    // 3. Fallback low-frequency poll (every 30s) instead of 2s to reduce server load
+    pollInterval = setInterval(checkStatusOnce, 30000);
   }
 
   retryBtn.addEventListener("click", () => {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
     if (pollInterval) clearInterval(pollInterval);
     deviceInput.value = "";
     previewText.textContent = "none";
