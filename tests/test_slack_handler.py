@@ -123,3 +123,28 @@ def test_process_approval_flow(mock_clients):
     updated_rec = sm.get_request(record.request_id)
     assert updated_rec.status == EnrollmentStatus.APPROVED
     assert updated_rec.pin == pin
+
+
+def test_update_channel_error_blocks(mock_clients):
+    handler, sm, _, _ = mock_clients
+    record = sm.create_request("ablack-phone", DevicePlatform.ANDROID, "192.168.1.50")
+
+    handler._update_channel_error(
+        channel="C123",
+        ts="123.456",
+        record=record,
+        error_msg="step-ca sign failed (HTTP 401): invalid jwk token audience claim",
+        user_name="spoutin",
+        vlan=VlanOption.SEMI_PRIVATE,
+    )
+
+    handler.app.client.chat_update.assert_called_once()
+    call_args = handler.app.client.chat_update.call_args.kwargs
+    assert call_args["channel"] == "C123"
+    assert call_args["ts"] == "123.456"
+    assert "Approval failed" in call_args["text"]
+
+    blocks = call_args["blocks"]
+    assert any("Wi-Fi Enrollment Failed" in str(b) for b in blocks)
+    assert any("invalid jwk token audience claim" in str(b) for b in blocks)
+    assert any("@spoutin" in str(b) for b in blocks)

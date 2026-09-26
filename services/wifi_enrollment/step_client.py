@@ -1,8 +1,10 @@
 import base64
+import hashlib
 import json
 import logging
 import os
 import time
+import urllib.parse
 import uuid
 from typing import Optional, Union
 
@@ -148,14 +150,16 @@ class StepCaClient:
         return private_key, csr_pem
 
     def get_root_fingerprint(self) -> str:
-        """Retrieves or calculates the SHA-256 fingerprint of the Root CA."""
+        """Retrieves or calculates the SHA-256 fingerprint of the Root CA directly from raw DER bytes."""
         if self._cached_root_fingerprint:
             return self._cached_root_fingerprint
 
         if os.path.exists(self.root_cert_path):
             with open(self.root_cert_path, "rb") as f:
-                root_cert = x509.load_pem_x509_certificate(f.read())
-                self._cached_root_fingerprint = root_cert.fingerprint(hashes.SHA256()).hex().lower()
+                lines = [l.strip() for l in f.read().splitlines()]
+                b64_lines = [l for l in lines if not l.startswith(b"-----") and len(l) > 0]
+                der_bytes = base64.b64decode(b"".join(b64_lines))
+                self._cached_root_fingerprint = hashlib.sha256(der_bytes).hexdigest().lower()
                 return self._cached_root_fingerprint
 
         return ""
@@ -208,6 +212,30 @@ class StepCaClient:
         if self.domain and not common_name.endswith(f".{self.domain}"):
             sans.append(f"{common_name}.{self.domain}")
 
+        # Construct audiences list: step-ca matches audiences against its dnsNames without port numbers,
+        # plus the built-in legacyAuthority ("step-certificate-authority")
+        parsed = urllib.parse.urlparse(self.ca_url)
+        ca_host = parsed.hostname or "127.0.0.1"
+
+        audiences = [
+            "step-certificate-authority",
+            f"https://step-ca.{self.domain}/1.0/sign",
+            f"https://{self.domain}/1.0/sign",
+            "https://step-ca/1.0/sign",
+            "https://localhost/1.0/sign",
+        ]
+        if ca_host not in ("step-ca", "localhost"):
+            audiences.append(f"https://{ca_host}/1.0/sign")
+        audiences.append(f"{self.ca_url}/1.0/sign")
+
+        # Deduplicate while preserving order
+        clean_audiences = []
+        seen = set()
+        for a in audiences:
+            if a not in seen:
+                seen.add(a)
+                clean_audiences.append(a)
+
         now = int(time.time())
         header = {
             "alg": "ES256",
@@ -215,7 +243,7 @@ class StepCaClient:
             "typ": "JWT",
         }
         payload = {
-            "aud": f"{self.ca_url}/1.0/sign",
+            "aud": clean_audiences,
             "exp": now + 300,  # 5 minutes
             "iat": now,
             "iss": self.provisioner_name,
@@ -255,7 +283,18 @@ class StepCaClient:
             verify=self.verify_ssl,
             timeout=10,
         )
-        resp.raise_for_status()
+
+        if not resp.ok:
+            error_detail = resp.text
+            try:
+                err_json = resp.json()
+                error_detail = err_json.get("message") or err_json.get("detail") or json.dumps(err_json)
+            except Exception:
+                pass
+            msg = f"step-ca sign failed (HTTP {resp.status_code}): {error_detail}"
+            logger.error(msg)
+            raise RuntimeError(msg)
+
         data = resp.json()
 
         leaf_pem = data.get("serverPem", "").encode("utf-8")

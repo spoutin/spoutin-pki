@@ -142,7 +142,8 @@ def test_pure_python_token_generation():
 
     assert payload["iss"] == "admin@int.spoutin.org"
     assert payload["sub"] == "ablack-phone"
-    assert payload["aud"] == "https://127.0.0.1:9000/1.0/sign"
+    assert "step-certificate-authority" in payload["aud"]
+    assert "https://step-ca.int.spoutin.org/1.0/sign" in payload["aud"]
     assert "ablack-phone" in payload["sans"]
     assert "ablack-phone.int.spoutin.org" in payload["sans"]
 

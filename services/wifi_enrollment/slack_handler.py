@@ -317,6 +317,18 @@ class SlackEnrollmentHandler:
                 )
             except Exception as e:
                 logger.error(f"Error during quick approve: {e}", exc_info=True)
+                self.state_manager.reject_request(
+                    request_id,
+                    reason="An internal error occurred while generating your Wi-Fi credentials. Please contact your network administrator.",
+                )
+                self._update_channel_error(
+                    channel=body["channel"]["id"],
+                    ts=body["message"]["ts"],
+                    record=record,
+                    error_msg=str(e),
+                    user_name=user_name,
+                    vlan=VlanOption.SEMI_PRIVATE,
+                )
 
         @self.app.action("open_edit_modal")
         def handle_open_modal(ack, body):
@@ -375,6 +387,19 @@ class SlackEnrollmentHandler:
                         )
                 except Exception as e:
                     logger.error(f"Error during modal approval: {e}", exc_info=True)
+                    self.state_manager.reject_request(
+                        request_id,
+                        reason="An internal error occurred while generating your Wi-Fi credentials. Please contact your network administrator.",
+                    )
+                    if record.slack_channel_id and record.slack_message_ts:
+                        self._update_channel_error(
+                            channel=record.slack_channel_id,
+                            ts=record.slack_message_ts,
+                            record=record,
+                            error_msg=str(e),
+                            user_name=user_name,
+                            vlan=vlan,
+                        )
 
         @self.app.action("reject_request")
         def handle_reject(ack, body):
@@ -408,3 +433,59 @@ class SlackEnrollmentHandler:
             )
         except Exception as e:
             logger.error(f"Failed to update Slack channel message: {e}")
+
+    def _update_channel_error(
+        self,
+        channel: str,
+        ts: str,
+        record: RequestRecord,
+        error_msg: str,
+        user_name: str,
+        vlan: VlanOption,
+    ) -> None:
+        """Updates Slack message with a structured technical error card when approval fails."""
+        time_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "❌ Wi-Fi Enrollment Failed",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Device Name:*\n`{record.approved_name or record.device_name}`"},
+                    {"type": "mrkdwn", "text": f"*Attempted By:*\n@{user_name}"},
+                    {"type": "mrkdwn", "text": f"*Target VLAN:*\n`{vlan.value}` ({vlan.label})"},
+                    {"type": "mrkdwn", "text": f"*Timestamp:*\n{time_str}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Actual Technical Error:*\n```{error_msg}```",
+                },
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ *Client Webpage:* Updated with a generic error message and polling was stopped.",
+                    }
+                ],
+            },
+        ]
+        try:
+            self.app.client.chat_update(
+                channel=channel,
+                ts=ts,
+                text=f"❌ Approval failed for {record.device_name}: {error_msg}",
+                blocks=blocks,
+            )
+        except Exception as e:
+            logger.error(f"Failed to update Slack channel with error card: {e}")
