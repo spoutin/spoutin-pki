@@ -350,9 +350,13 @@
           : `<span class="badge badge-vlan clickable" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}" title="Click to edit VLAN assignment">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`;
 
         const reasonDisplay = c.revocation_reason_label || formatRevocationReason(c.revocation_reason);
+        const downloadBtnHtml = (!isRevoked && c.download_available)
+          ? `<a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download" class="btn-sm btn-download" title="Download .p12 certificate bundle (available for 24h)">⬇️ .p12</a>`
+          : "";
         const actionHtml = isRevoked
           ? `<span class="badge" style="font-size: 0.72rem; font-weight: normal; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); white-space: nowrap;" title="Revocation Reason: ${escapeHtml(c.revocation_reason || 'Revoked')}">${escapeHtml(reasonDisplay)}</span>`
-          : `<button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
+          : `${downloadBtnHtml}
+             <button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
              <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
 
         tr.innerHTML = `
@@ -517,7 +521,10 @@
         activeModalRequestId = null;
         await refreshAll(true);
         if (data.pin) {
-          alert(`✅ Approved ${newName} (VLAN ${vlanId})!\n\nImport PIN: ${data.pin}\n(Saved to inventory table)`);
+          const dlNote = data.serial_number
+            ? `\n\n⬇️ The .p12 bundle can be downloaded from the inventory table for the next 24 hours.`
+            : "";
+          alert(`✅ Approved ${newName} (VLAN ${vlanId})!\n\nImport PIN: ${data.pin}${dlNote}`);
         }
       } else {
         const err = await resp.json();

@@ -270,6 +270,7 @@ class SlackEnrollmentHandler:
         pin = f"{secrets.randbelow(10000):04d}"
 
         # 6. Record certificate in persistent SQLite database
+        serial_str: Optional[str] = None
         try:
             from cryptography import x509
             leaf_cert = x509.load_pem_x509_certificate(leaf_pem)
@@ -310,6 +311,7 @@ class SlackEnrollmentHandler:
             vlan=vlan,
             p12_bytes=p12_bytes,
             pin=pin,
+            serial_number=serial_str,
         )
 
         if self.broadcaster:

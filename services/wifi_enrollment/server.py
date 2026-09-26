@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.11",
+        version="0.2.12",
         lifespan=lifespan,
     )
 
@@ -395,18 +395,21 @@ def create_app(
 
     @app.get("/api/download/{download_token}")
     def download_bundle(download_token: str):
-        result = sm.consume_download(download_token)
+        result = sm.get_download(download_token)
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Download token is invalid, expired, or has already been used.",
+                detail="Download token is invalid or the 24-hour download window has expired.",
             )
 
         p12_bytes, filename = result
         return Response(
             content=p12_bytes,
             media_type="application/x-pkcs12",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+            },
         )
 
     # ================= SLACK OAUTH & ADMIN AUTH ROUTES =================
@@ -585,6 +588,7 @@ def create_app(
                 "device_name": target_name,
                 "vlan": vlan.value,
                 "pin": pin,
+                "serial_number": record.serial_number,
             }
         except Exception as e:
             logger.error(f"Error during web dashboard approval: {e}", exc_info=True)
@@ -652,7 +656,42 @@ def create_app(
         for c in certs:
             reason = c.get("revocation_reason")
             c["revocation_reason_label"] = REVOCATION_REASON_LABELS.get(reason, reason) if reason else None
+            serial = c.get("serial_number")
+            c["download_available"] = bool(
+                c.get("status") != "REVOKED"
+                and serial
+                and sm.has_download_by_serial(serial)
+            )
         return certs
+
+    @app.get("/api/admin/certificates/{serial}/download")
+    def admin_download_certificate(
+        serial: str,
+        admin: dict = Depends(require_admin),
+    ):
+        cert = db.get_certificate(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail="Certificate not found in database.")
+
+        if cert.get("status") == "REVOKED":
+            raise HTTPException(status_code=400, detail="Certificate has been revoked.")
+
+        result = sm.get_download_by_serial(serial)
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="Certificate bundle not found or 24-hour download window has expired.",
+            )
+
+        p12_bytes, filename = result
+        return Response(
+            content=p12_bytes,
+            media_type="application/x-pkcs12",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+            },
+        )
 
     @app.post("/api/admin/certificates/{serial}/revoke")
     def revoke_certificate_endpoint(
@@ -689,6 +728,9 @@ def create_app(
 
         # 3. Update database record
         db.revoke_certificate(serial, reason=body.reason, scope=body.scope)
+
+        # 4. Immediately purge in-memory ephemeral .p12
+        sm.revoke_download(serial)
 
         # Notify admin dashboard via SSE
         bc.publish_admin(

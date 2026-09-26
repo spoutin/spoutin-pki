@@ -230,6 +230,68 @@ def test_admin_revocation_default_scope(admin_test_app):
     assert cert["revocation_scope"] == "USER_AND_CERT"
 
 
+def test_admin_download_certificate(admin_test_app):
+    client, sm, db, step_client, radius_client, _ = admin_test_app
+
+    # Insert active cert in DB
+    db.insert_certificate(
+        serial_number="99901",
+        device_name="device-dl-test",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.9",
+        cert_pem="DUMMY_PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+
+    # State manager creates and approves request with serial_number
+    rec = sm.create_request("device-dl-test", DevicePlatform.ANDROID, "10.0.0.9")
+    token, pin = sm.approve_request(
+        request_id=rec.request_id,
+        approved_name="device-dl-test",
+        vlan=VlanOption.SEMI_PRIVATE,
+        p12_bytes=b"DUMMY_P12_ADMIN_DOWNLOAD",
+        serial_number="99901",
+    )
+
+    # Check list certificates includes download_available: True
+    list_resp = client.get("/api/admin/certificates")
+    assert list_resp.status_code == 200
+    matching = [c for c in list_resp.json() if c["serial_number"] == "99901"]
+    assert len(matching) == 1
+    assert matching[0]["download_available"] is True
+
+    # Admin downloads the certificate
+    dl_resp = client.get("/api/admin/certificates/99901/download")
+    assert dl_resp.status_code == 200
+    assert dl_resp.content == b"DUMMY_P12_ADMIN_DOWNLOAD"
+    assert dl_resp.headers["content-type"] == "application/x-pkcs12"
+    assert 'attachment; filename="device-dl-test.p12"' in dl_resp.headers["content-disposition"]
+
+    # Repeated download within 24h succeeds
+    dl_resp2 = client.get("/api/admin/certificates/99901/download")
+    assert dl_resp2.status_code == 200
+    assert dl_resp2.content == b"DUMMY_P12_ADMIN_DOWNLOAD"
+
+    # Revoking the certificate purges download
+    rev_resp = client.post(
+        "/api/admin/certificates/99901/revoke",
+        json={"reason": "keyCompromise", "scope": "CERT_ONLY"},
+    )
+    assert rev_resp.status_code == 200
+
+    # download is now gone / disallowed
+    dl_resp_after_rev = client.get("/api/admin/certificates/99901/download")
+    assert dl_resp_after_rev.status_code == 400
+
+    # and list_certificates shows download_available: False
+    list_resp2 = client.get("/api/admin/certificates")
+    matching2 = [c for c in list_resp2.json() if c["serial_number"] == "99901"]
+    assert matching2[0]["download_available"] is False
+
+
 def test_public_crl_route(admin_test_app):
     import hashlib
 

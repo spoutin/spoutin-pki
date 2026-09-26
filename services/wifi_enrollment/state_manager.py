@@ -25,17 +25,25 @@ class RequestRecord:
     error_message: Optional[str] = None
     slack_message_ts: Optional[str] = None
     slack_channel_id: Optional[str] = None
+    serial_number: Optional[str] = None
 
 
 class StateManager:
     """Thread-safe in-memory state manager for Wi-Fi enrollment requests."""
 
-    def __init__(self, ttl_seconds: int = 900, max_pending: int = 10):
+    def __init__(
+        self,
+        ttl_seconds: int = 900,
+        max_pending: int = 10,
+        approved_ttl_seconds: int = 86400,
+    ):
         self.ttl_seconds = ttl_seconds
         self.max_pending = max_pending
+        self.approved_ttl_seconds = approved_ttl_seconds
         self._lock = threading.RLock()
         self._requests: dict[str, RequestRecord] = {}
         self._token_to_id: dict[str, str] = {}
+        self._serial_to_id: dict[str, str] = {}
 
     def create_request(
         self, device_name: str, platform: DevicePlatform, client_ip: str
@@ -85,6 +93,7 @@ class StateManager:
         vlan: VlanOption,
         p12_bytes: bytes,
         pin: Optional[str] = None,
+        serial_number: Optional[str] = None,
     ) -> tuple[str, str]:
         with self._lock:
             record = self._requests.get(request_id)
@@ -95,13 +104,19 @@ class StateManager:
             final_pin = pin or f"{secrets.randbelow(10000):04d}"
             token = secrets.token_urlsafe(32)
 
+            now = time.time()
             record.status = EnrollmentStatus.APPROVED
             record.approved_name = approved_name
             record.vlan = vlan
             record.pin = final_pin
             record.download_token = token
             record.p12_data = p12_bytes
+            record.serial_number = serial_number
+            record.expires_at = now + self.approved_ttl_seconds
+
             self._token_to_id[token] = request_id
+            if serial_number:
+                self._serial_to_id[serial_number] = request_id
 
             return token, final_pin
 
@@ -117,25 +132,61 @@ class StateManager:
             record.error_message = reason
             return True
 
-    def consume_download(self, download_token: str) -> Optional[tuple[bytes, str]]:
-        """Single-use download: returns (p12_bytes, filename) and immediately purges from memory."""
+    def get_download(self, download_token: str) -> Optional[tuple[bytes, str]]:
+        """Time-based download retrieval: returns (p12_bytes, filename) if within 24h approval window."""
         with self._lock:
-            req_id = self._token_to_id.pop(download_token, None)
+            req_id = self._token_to_id.get(download_token)
             if not req_id:
                 return None
 
             record = self._requests.get(req_id)
-            if not record or not record.p12_data:
+            if not record or not record.p12_data or time.time() > record.expires_at:
                 return None
 
-            p12_bytes = record.p12_data
             filename = f"{record.approved_name or record.device_name}.p12"
+            return record.p12_data, filename
 
-            # Purge private key data from memory immediately
-            record.p12_data = None
-            record.download_token = None
+    def consume_download(self, download_token: str) -> Optional[tuple[bytes, str]]:
+        """Backwards-compatible download retrieval alias (non-destructive, time-based)."""
+        return self.get_download(download_token)
 
-            return p12_bytes, filename
+    def get_download_by_serial(self, serial_number: str) -> Optional[tuple[bytes, str]]:
+        """Retrieve .p12 certificate bundle by serial number if within 24h approval window."""
+        with self._lock:
+            req_id = self._serial_to_id.get(serial_number)
+            if not req_id:
+                return None
+
+            record = self._requests.get(req_id)
+            if not record or not record.p12_data or time.time() > record.expires_at:
+                return None
+
+            filename = f"{record.approved_name or record.device_name}.p12"
+            return record.p12_data, filename
+
+    def has_download_by_serial(self, serial_number: str) -> bool:
+        """Check if an approved .p12 bundle is available for download by serial number."""
+        with self._lock:
+            req_id = self._serial_to_id.get(serial_number)
+            if not req_id:
+                return False
+
+            record = self._requests.get(req_id)
+            if not record or not record.p12_data or time.time() > record.expires_at:
+                return False
+
+            return True
+
+    def revoke_download(self, serial_number: str) -> None:
+        """Immediately purge in-memory .p12 bundle when a certificate is revoked."""
+        with self._lock:
+            req_id = self._serial_to_id.pop(serial_number, None)
+            if req_id:
+                record = self._requests.get(req_id)
+                if record:
+                    record.p12_data = None
+                    if record.download_token:
+                        self._token_to_id.pop(record.download_token, None)
 
     def update_slack_info(
         self, request_id: str, channel_id: str, message_ts: str
@@ -159,7 +210,10 @@ class StateManager:
 
         for req_id in to_delete:
             rec = self._requests.pop(req_id, None)
-            if rec and rec.download_token:
-                self._token_to_id.pop(rec.download_token, None)
+            if rec:
+                if rec.download_token:
+                    self._token_to_id.pop(rec.download_token, None)
+                if rec.serial_number:
+                    self._serial_to_id.pop(rec.serial_number, None)
 
         return len(to_delete)

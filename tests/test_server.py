@@ -127,9 +127,14 @@ def test_download_endpoint(test_app):
     assert "attachment" in dl_resp.headers["Content-Disposition"]
     assert "ablack-phone.p12" in dl_resp.headers["Content-Disposition"]
 
-    # Second download must return 404 (single use)
+    # Second download succeeds within 24h approval window (time-based)
     dl_resp2 = client.get(f"/api/download/{token}")
-    assert dl_resp2.status_code == 404
+    assert dl_resp2.status_code == 200
+    assert dl_resp2.content == dummy_p12
+
+    # Invalid download token returns 404
+    bad_resp = client.get("/api/download/nonexistent-token-123")
+    assert bad_resp.status_code == 404
 
 
 def test_index_page(test_app):

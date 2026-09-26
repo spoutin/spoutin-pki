@@ -23,7 +23,6 @@
   const retryBtn = document.getElementById("retry-btn");
 
   let pollInterval = null;
-  let hasAutoDownloaded = false;
 
   // Auto-sanitizer for device name input
   function sanitizeName(raw) {
@@ -126,7 +125,6 @@
       const data = await resp.json();
       waitingDeviceName.textContent = data.device_name;
       showView(waitingView);
-      hasAutoDownloaded = false;
 
       // Start instant listening via Server-Sent Events (SSE)
       startListening(data.request_id);
@@ -159,17 +157,7 @@
     if (data.download_token) {
       const dlUrl = `/api/download/${data.download_token}`;
       manualDownloadBtn.href = dlUrl;
-
-      // Trigger auto-download once
-      if (!hasAutoDownloaded) {
-        hasAutoDownloaded = true;
-        const link = document.createElement("a");
-        link.href = dlUrl;
-        link.download = `${data.radius_identity || data.device_name}.p12`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      manualDownloadBtn.setAttribute("download", `${data.radius_identity || data.device_name}.p12`);
     }
 
     showView(approvedView);

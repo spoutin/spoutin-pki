@@ -28,7 +28,7 @@ def test_max_pending_requests():
 
 
 def test_approve_request_and_consume_download():
-    sm = StateManager(ttl_seconds=60)
+    sm = StateManager(ttl_seconds=60, approved_ttl_seconds=86400)
     record = sm.create_request("ablack-phone", DevicePlatform.ANDROID, "192.168.1.50")
 
     dummy_p12 = b"dummy_pkcs12_content"
@@ -37,6 +37,7 @@ def test_approve_request_and_consume_download():
         approved_name="ablack-phone",
         vlan=VlanOption.SEMI_PRIVATE,
         p12_bytes=dummy_p12,
+        serial_number="123456789",
     )
 
     assert len(pin) == 4
@@ -47,14 +48,49 @@ def test_approve_request_and_consume_download():
     assert req.status == EnrollmentStatus.APPROVED
     assert req.pin == pin
     assert req.download_token == token
+    assert req.serial_number == "123456789"
 
-    # Consume download
-    p12_out, filename = sm.consume_download(token)
+    # First download
+    p12_out, filename = sm.get_download(token)
     assert p12_out == dummy_p12
     assert filename == "ablack-phone.p12"
 
-    # Second download attempt must fail (single-use)
-    assert sm.consume_download(token) is None
+    # Second download attempt within TTL succeeds (time-based, not single-use)
+    p12_out_2, filename_2 = sm.get_download(token)
+    assert p12_out_2 == dummy_p12
+    assert filename_2 == "ablack-phone.p12"
+
+    # Download by serial number succeeds
+    assert sm.has_download_by_serial("123456789") is True
+    p12_by_serial, fname_by_serial = sm.get_download_by_serial("123456789")
+    assert p12_by_serial == dummy_p12
+    assert fname_by_serial == "ablack-phone.p12"
+
+    # Revoking download purges in-memory p12
+    sm.revoke_download("123456789")
+    assert sm.has_download_by_serial("123456789") is False
+    assert sm.get_download_by_serial("123456789") is None
+    assert sm.get_download(token) is None
+
+
+def test_approved_download_expiration():
+    sm = StateManager(ttl_seconds=60, approved_ttl_seconds=1)
+    record = sm.create_request("ablack-phone", DevicePlatform.ANDROID, "192.168.1.50")
+
+    dummy_p12 = b"dummy_pkcs12_content"
+    token, _ = sm.approve_request(
+        request_id=record.request_id,
+        approved_name="ablack-phone",
+        vlan=VlanOption.SEMI_PRIVATE,
+        p12_bytes=dummy_p12,
+        serial_number="999888",
+    )
+
+    assert sm.has_download_by_serial("999888") is True
+    time.sleep(1.1)
+    assert sm.has_download_by_serial("999888") is False
+    assert sm.get_download_by_serial("999888") is None
+    assert sm.get_download(token) is None
 
 
 def test_reject_request():
