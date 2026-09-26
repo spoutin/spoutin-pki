@@ -1,0 +1,174 @@
+from unittest.mock import MagicMock
+import pytest
+from fastapi.testclient import TestClient
+
+from services.wifi_enrollment.auth import create_session_token
+from services.wifi_enrollment.database import CertificateDatabase
+from services.wifi_enrollment.models import DevicePlatform, VlanOption
+from services.wifi_enrollment.server import create_app
+from services.wifi_enrollment.state_manager import StateManager
+
+
+@pytest.fixture
+def admin_test_app(tmp_path):
+    db_file = tmp_path / "test_inventory.db"
+    db = CertificateDatabase(str(db_file))
+    sm = StateManager(ttl_seconds=300)
+
+    step_client = MagicMock()
+    step_client.revoke_certificate.return_value = True
+    step_client.get_crl.return_value = b"DUMMY_CRL_BYTES"
+
+    radius_client = MagicMock()
+    radius_client.delete_user.return_value = True
+
+    slack_handler = MagicMock()
+    slack_handler.process_approval.return_value = ("token123", "4829")
+
+    secret = "test-secret"
+    allowed_emails = "admin@spoutin.org"
+
+    app = create_app(
+        state_manager=sm,
+        slack_handler=slack_handler,
+        step_client=step_client,
+        radius_client=radius_client,
+        database=db,
+    )
+    # Configure test auth
+    app.state.session_secret_key = secret
+    app.state.allowed_admin_emails = allowed_emails
+
+    client = TestClient(app)
+    admin_token = create_session_token("admin@spoutin.org", "Adam", secret_key=secret)
+    client.cookies.set("wifi_admin_session", admin_token)
+
+    return client, sm, db, step_client, radius_client, slack_handler
+
+
+def test_admin_api_unauthorized():
+    app = create_app()
+    unauth_client = TestClient(app)
+
+    resp = unauth_client.get("/api/admin/stats")
+    assert resp.status_code == 401
+
+
+def test_admin_stats_and_requests(admin_test_app):
+    client, sm, db, _, _, _ = admin_test_app
+
+    # Create pending request
+    rec = sm.create_request("dev-test", DevicePlatform.ANDROID, "10.0.0.1")
+
+    reqs_resp = client.get("/api/admin/requests")
+    assert reqs_resp.status_code == 200
+    reqs = reqs_resp.json()
+    assert len(reqs) == 1
+    assert reqs[0]["device_name"] == "dev-test"
+
+    stats_resp = client.get("/api/admin/stats")
+    assert stats_resp.status_code == 200
+    assert stats_resp.json()["total"] == 0
+
+
+def test_admin_web_approval(admin_test_app):
+    client, sm, db, _, _, slack_handler = admin_test_app
+    rec = sm.create_request("dev-test", DevicePlatform.ANDROID, "10.0.0.1")
+
+    approve_resp = client.post(
+        f"/api/admin/requests/{rec.request_id}/approve",
+        json={"approved_name": "dev-test-approved", "vlan_id": 8},
+    )
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["status"] == "approved"
+
+    # Verify slack_handler.process_approval was called
+    slack_handler.process_approval.assert_called_once_with(
+        request_id=rec.request_id,
+        approved_name="dev-test-approved",
+        vlan=VlanOption.SEMI_PRIVATE,
+    )
+
+
+def test_admin_web_rejection(admin_test_app):
+    client, sm, _, _, _, _ = admin_test_app
+    rec = sm.create_request("dev-test", DevicePlatform.ANDROID, "10.0.0.1")
+
+    reject_resp = client.post(
+        f"/api/admin/requests/{rec.request_id}/reject",
+        json={"reason": "Denied by admin from dashboard"},
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["status"] == "rejected"
+
+    updated = sm.get_request(rec.request_id)
+    assert updated.status.value == "rejected"
+
+
+def test_admin_revocation_cert_only(admin_test_app):
+    client, sm, db, step_client, radius_client, _ = admin_test_app
+
+    # Seed certificate in database
+    db.insert_certificate(
+        serial_number="55555",
+        device_name="device-to-revoke",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.5",
+        cert_pem="DUMMY_PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+
+    resp = client.post(
+        "/api/admin/certificates/55555/revoke",
+        json={"reason": "keyCompromise", "scope": "CERT_ONLY"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "revoked"
+
+    # step-ca was called
+    step_client.revoke_certificate.assert_called_once_with("55555", reason="keyCompromise")
+    # FreeRADIUS delete_user was NOT called
+    radius_client.delete_user.assert_not_called()
+
+    cert = db.get_certificate("55555")
+    assert cert["status"] == "REVOKED"
+    assert cert["revocation_scope"] == "CERT_ONLY"
+
+
+def test_admin_revocation_user_and_cert(admin_test_app):
+    client, sm, db, step_client, radius_client, _ = admin_test_app
+
+    db.insert_certificate(
+        serial_number="77777",
+        device_name="device-full-revoke",
+        platform="ios",
+        vlan_id=1,
+        vlan_label="1 - LAN",
+        client_ip="10.0.0.7",
+        cert_pem="DUMMY_PEM",
+        issued_at=1000,
+        expires_at=2000,
+    )
+
+    resp = client.post(
+        "/api/admin/certificates/77777/revoke",
+        json={"reason": "cessationOfOperation", "scope": "USER_AND_CERT"},
+    )
+    assert resp.status_code == 200
+
+    step_client.revoke_certificate.assert_called_once_with("77777", reason="cessationOfOperation")
+    radius_client.delete_user.assert_called_once_with("device-full-revoke")
+
+    cert = db.get_certificate("77777")
+    assert cert["status"] == "REVOKED"
+    assert cert["revocation_scope"] == "USER_AND_CERT"
+
+
+def test_public_crl_route(admin_test_app):
+    client, _, _, step_client, _, _ = admin_test_app
+    resp = client.get("/crl")
+    assert resp.status_code == 200
+    assert resp.content == b"DUMMY_CRL_BYTES"

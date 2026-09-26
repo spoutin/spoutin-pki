@@ -11,7 +11,13 @@ class CertificateDatabase:
     def __init__(self, db_path: str = "/opt/wifi-enrollment/data/inventory.db"):
         self.db_path = db_path
         if self.db_path != ":memory:":
-            os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+            except (PermissionError, OSError):
+                # Fallback to local working directory data folder if system path is not writable
+                local_dir = os.path.abspath("./data")
+                os.makedirs(local_dir, exist_ok=True)
+                self.db_path = os.path.join(local_dir, "inventory.db")
 
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)

@@ -14,6 +14,7 @@ from services.wifi_enrollment.models import (
     VlanOption,
     sanitize_device_name,
 )
+from services.wifi_enrollment.database import CertificateDatabase
 from services.wifi_enrollment.radius_client import FreeRadiusClient
 from services.wifi_enrollment.state_manager import RequestRecord, StateManager
 from services.wifi_enrollment.step_client import StepCaClient
@@ -31,12 +32,14 @@ class SlackEnrollmentHandler:
         step_client: StepCaClient,
         radius_client: FreeRadiusClient,
         channel_id: str,
+        database: Optional[CertificateDatabase] = None,
     ):
         self.app = app
         self.state_manager = state_manager
         self.step_client = step_client
         self.radius_client = radius_client
         self.channel_id = channel_id
+        self.database = database
 
         self._register_handlers()
 
@@ -254,6 +257,29 @@ class SlackEnrollmentHandler:
             description="Auto-enrolled via wifi-enrollment",
         )
         self.radius_client.reconfigure_service()
+
+        # 6. Record certificate in persistent SQLite database
+        try:
+            from cryptography import x509
+            leaf_cert = x509.load_pem_x509_certificate(leaf_pem)
+            serial_str = str(leaf_cert.serial_number)
+            if self.database:
+                opn_uuid = self.radius_client.get_user_uuid(approved_name)
+                now = int(time.time())
+                self.database.insert_certificate(
+                    serial_number=serial_str,
+                    device_name=approved_name,
+                    platform=record.platform.value,
+                    vlan_id=vlan.value,
+                    vlan_label=vlan.label,
+                    client_ip=record.client_ip,
+                    cert_pem=leaf_pem.decode("utf-8") if isinstance(leaf_pem, bytes) else leaf_pem,
+                    issued_at=now,
+                    expires_at=now + 52560 * 3600,
+                    opnsense_uuid=opn_uuid,
+                )
+        except Exception as e:
+            logger.error(f"Failed to record certificate to database: {e}", exc_info=True)
 
         import secrets
         pin = f"{secrets.randbelow(10000):04d}"
