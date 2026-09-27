@@ -48,7 +48,7 @@ if [ -z "$CRL_ACTIVE" ]; then
         exit 1
     fi
 
-    # Run embedded PHP script to register CRL in OPNsense config.xml
+    # Run embedded PHP script to register CRL and ensure both Root & Intermediate CAs are enabled in OPNsense
     /usr/local/bin/php << 'EOF'
 <?php
 require_once('config.inc');
@@ -56,15 +56,30 @@ use OPNsense\Core\Config;
 
 $configObj = Config::getInstance()->object();
 
-// 1. Identify the CA configured in FreeRADIUS EAP or the primary internal CA
+// 1. Identify Root CA and Step-CA Intermediate CA in OPNsense
 $caref = '';
-if (!empty($configObj->OPNsense->freeradius->eap->ca)) {
-    $caref = (string)$configObj->OPNsense->freeradius->eap->ca;
-    if (strpos($caref, ',') !== false) {
-        $caref = explode(',', $caref)[0];
+$inter_ref = '';
+$root_ref = '';
+
+if (isset($configObj->ca)) {
+    foreach ($configObj->ca as $ca) {
+        $descr = (string)$ca->descr;
+        $name = (string)$ca->name;
+        if (stripos($descr, 'step-ca') !== false || stripos($descr, 'intermediate') !== false || stripos($name, 'intermediate') !== false) {
+            $inter_ref = (string)$ca->refid;
+        }
+        if (stripos($descr, 'wifi') !== false || stripos($descr, 'main') !== false || stripos($name, 'root') !== false) {
+            $root_ref = (string)$ca->refid;
+        }
     }
 }
-if (empty($caref) && isset($configObj->ca)) {
+
+// CRL was signed by Step-CA Intermediate CA; prefer intermediate, fall back to root or first CA
+if (!empty($inter_ref)) {
+    $caref = $inter_ref;
+} elseif (!empty($root_ref)) {
+    $caref = $root_ref;
+} elseif (isset($configObj->ca)) {
     foreach ($configObj->ca as $ca) {
         $caref = (string)$ca->refid;
         break;
@@ -74,6 +89,18 @@ if (empty($caref) && isset($configObj->ca)) {
 if (empty($caref)) {
     fwrite(STDERR, "Error: No Certificate Authority found in OPNsense configuration.\n");
     exit(1);
+}
+
+// Ensure FreeRADIUS EAP has BOTH Root CA and Intermediate CA configured so it trusts the full chain
+if (isset($configObj->OPNsense->freeradius->eap)) {
+    $current_cas = explode(',', (string)$configObj->OPNsense->freeradius->eap->ca);
+    if (!empty($root_ref) && !in_array($root_ref, $current_cas)) {
+        $current_cas[] = $root_ref;
+    }
+    if (!empty($inter_ref) && !in_array($inter_ref, $current_cas)) {
+        $current_cas[] = $inter_ref;
+    }
+    $configObj->OPNsense->freeradius->eap->ca = implode(',', array_unique(array_filter($current_cas)));
 }
 
 // 2. Read the initial CRL PEM
@@ -87,7 +114,7 @@ if (empty($crl_text)) {
 $target_crl = null;
 if (isset($configObj->crl)) {
     foreach ($configObj->crl as $crl) {
-        if ((string)$crl->caref == $caref && (string)$crl->descr == 'Spoutin Wi-Fi CRL') {
+        if ((string)$crl->descr == 'Spoutin Wi-Fi CRL') {
             $target_crl = $crl;
             break;
         }
@@ -112,7 +139,7 @@ $configObj->OPNsense->freeradius->eap->enable_client_cert = '1';
 
 // 5. Save changes
 Config::getInstance()->save();
-echo "Successfully registered Spoutin Wi-Fi CRL in OPNsense config.xml (refid: " . $target_crl->refid . ")\n";
+echo "Successfully registered Spoutin Wi-Fi CRL in OPNsense config.xml (caref: " . $caref . ", refid: " . $target_crl->refid . ")\n";
 EOF
 
     # Regenerate FreeRADIUS templates and certificates
@@ -164,18 +191,19 @@ if [ "$HTTP_CODE" = "200" ]; then
         exit 1
     fi
 
-    # Create a base backup of the CA certificates without CRL on first run
-    if [ ! -f "$CA_BASE" ] && [ -f "$CA_OPN" ]; then
-        # Strip any existing CRL block to create a clean base CA file
-        awk 'BEGIN{c=1} /BEGIN X509 CRL/{c=0} {if(c) print} /END X509 CRL/{c=1}' "$CA_OPN" > "$CA_BASE"
-    fi
-
     # Update installed CRL file
     mv -f "$TEMP_FILE" "$INSTALLED_CRL"
     chmod 644 "$INSTALLED_CRL"
 
-    # Re-assemble ca_opn.pem with clean base CA + new CRL
-    if [ -f "$CA_BASE" ]; then
+    # Always ensure clean base CA certificates (Root + Intermediate) are refreshed from OPNsense templates
+    if [ -f "/usr/local/opnsense/scripts/Freeradius/generate_certs.php" ]; then
+        /usr/local/opnsense/scripts/Freeradius/generate_certs.php >/dev/null 2>&1 || true
+    fi
+
+    if [ -f "$CA_OPN" ]; then
+        # Strip any existing CRL block to create a clean base CA file
+        awk 'BEGIN{c=1} /BEGIN X509 CRL/{c=0} {if(c) print} /END X509 CRL/{c=1}' "$CA_OPN" > "$CA_BASE"
+        # Re-assemble ca_opn.pem with clean base CA + new CRL
         cat "$CA_BASE" "$INSTALLED_CRL" > "$CA_OPN"
         chmod 600 "$CA_OPN"
     fi

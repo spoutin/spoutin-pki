@@ -198,6 +198,15 @@ class StepCaClient:
                 target = provisioners[0]
 
             if target:
+                opt_tf = target.get("options", {}).get("x509", {}).get("templateFile")
+                if not opt_tf:
+                    logger.warning(
+                        "step-ca provisioner '%s' is missing 'options.x509.templateFile' in %s. "
+                        "Certificates will be issued with default step-ca template without crlDistributionPoints, "
+                        "which may cause OpenSSL error 44 (different CRL scope) in FreeRADIUS.",
+                        target.get("name"),
+                        self.ca_config_path,
+                    )
                 kid = target.get("key", {}).get("kid", "")
                 enc_key = target.get("encryptedKey", "")
                 if enc_key and password:

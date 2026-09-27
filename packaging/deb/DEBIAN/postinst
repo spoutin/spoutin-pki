@@ -38,16 +38,45 @@ import json, os, sys
 
 need_restart = False
 ca_path = "/etc/step-ca/config/ca.json"
+primary_template = "/etc/step-ca/templates/certs/eap-client.json"
+
+full_template_content = '''{
+  "subject": {{ toJson .Subject }},
+  "sans": {{ toJson .SANs }},
+  "keyUsage": ["digitalSignature", "keyEncipherment"],
+  "extKeyUsage": ["clientAuth"],
+  "crlDistributionPoints": [
+    "https://step-ca.int.spoutin.org/1.0/crl",
+    "https://wifi.int.spoutin.org/crl.pem"
+  ]
+}
+'''
+
+crl_block = '''  "crlDistributionPoints": [
+    "https://step-ca.int.spoutin.org/1.0/crl",
+    "https://wifi.int.spoutin.org/crl.pem"
+  ]'''
+
 template_paths = {
-    "/etc/step-ca/templates/certs/eap-client.json",
+    primary_template,
     "/etc/step-ca/templates/eap-client.json",
 }
 
+# 1. Ensure primary template directory and file exist with CRLDP
+os.makedirs(os.path.dirname(primary_template), exist_ok=True)
+if not os.path.exists(primary_template):
+    print(f"Creating default {primary_template} with crlDistributionPoints...")
+    with open(primary_template, "w", encoding="utf-8") as f:
+        f.write(full_template_content)
+    need_restart = True
+
+# 2. Check ca.json for CRL config and wire provisioners to the template
 if os.path.exists(ca_path):
     try:
         with open(ca_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        ca_changed = False
         crl = data.get("crl")
         if not isinstance(crl, dict) or not crl.get("enabled"):
             print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
@@ -56,24 +85,29 @@ if os.path.exists(ca_path):
                 "generateOnRevoke": True,
                 "cacheDuration": "24h"
             }
+            ca_changed = True
+
+        for p in data.get("authority", {}).get("provisioners", []):
+            if p.get("type") == "JWK":
+                opt = p.setdefault("options", {}).setdefault("x509", {})
+                current_tf = opt.get("templateFile")
+                if not current_tf:
+                    print(f"Wiring provisioner '{p.get('name')}' to template {primary_template} in ca.json...")
+                    opt["templateFile"] = primary_template
+                    ca_changed = True
+                else:
+                    template_paths.add(current_tf)
+
+        if ca_changed:
             with open(ca_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
                 f.write("\n")
-            print("Updated ca.json with CRL configuration.")
+            print("Saved updated ca.json.")
             need_restart = True
-
-        for p in data.get("authority", {}).get("provisioners", []):
-            tf = p.get("options", {}).get("x509", {}).get("templateFile")
-            if tf:
-                template_paths.add(tf)
     except Exception as e:
         print(f"Notice: Could not inspect ca.json: {e}")
 
-crl_block = '''  "crlDistributionPoints": [
-    "https://step-ca.int.spoutin.org/1.0/crl",
-    "https://wifi.int.spoutin.org/crl.pem"
-  ]'''
-
+# 3. Ensure all referenced template files have crlDistributionPoints
 for tp in template_paths:
     if os.path.isfile(tp):
         try:
