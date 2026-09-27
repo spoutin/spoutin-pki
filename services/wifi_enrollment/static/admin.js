@@ -273,10 +273,12 @@
           <td><span class="badge badge-vlan">${escapeHtml(r.platform)}</span></td>
           <td><code>${escapeHtml(r.client_ip)}</code></td>
           <td>${timeAgo}</td>
-          <td>
-            <button class="btn-sm btn-approve" data-action="quick-approve" data-id="${r.request_id}" data-name="${escapeHtml(r.device_name)}">⚡ Quick (VLAN 8)</button>
-            <button class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);" data-action="open-modal" data-id="${r.request_id}" data-name="${escapeHtml(r.device_name)}">✏️ Edit</button>
-            <button class="btn-sm btn-reject" data-action="reject" data-id="${r.request_id}">❌ Reject</button>
+          <td class="actions-cell">
+            <div class="action-buttons">
+              <button class="btn-sm btn-approve" data-action="quick-approve" data-id="${r.request_id}" data-name="${escapeHtml(r.device_name)}">⚡ Quick (VLAN 8)</button>
+              <button class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);" data-action="open-modal" data-id="${r.request_id}" data-name="${escapeHtml(r.device_name)}">✏️ Edit</button>
+              <button class="btn-sm btn-reject" data-action="reject" data-id="${r.request_id}">❌ Reject</button>
+            </div>
           </td>
         `;
         requestsTbody.appendChild(tr);
@@ -287,6 +289,8 @@
       return [];
     }
   }
+
+  let cachedCerts = [];
 
   async function refreshInventory() {
     const search = inventorySearch.value.trim();
@@ -301,124 +305,130 @@
     try {
       const resp = await adminFetch(`/api/admin/certificates?${params.toString()}`);
       if (!resp.ok) return;
-      const certs = await resp.json();
+      cachedCerts = await resp.json();
 
       currentActiveDevices = new Set(
-        certs
+        cachedCerts
           .filter((c) => c.status === "ACTIVE")
           .map((c) => c.device_name.toLowerCase())
       );
 
-      inventoryTbody.innerHTML = "";
-      if (certs.length === 0) {
-        inventoryEmpty.classList.remove("hidden");
-        return;
-      }
-      inventoryEmpty.classList.add("hidden");
-
-      // Sort certificates based on selected column and direction
-      certs.sort((a, b) => {
-        let valA, valB;
-        if (currentSortCol === "device_name") {
-          valA = (a.device_name || "").toLowerCase();
-          valB = (b.device_name || "").toLowerCase();
-        } else if (currentSortCol === "platform") {
-          valA = (a.platform || "").toLowerCase();
-          valB = (b.platform || "").toLowerCase();
-        } else if (currentSortCol === "vlan_id") {
-          valA = Number(a.vlan_id) || 0;
-          valB = Number(b.vlan_id) || 0;
-        } else if (currentSortCol === "serial_hex") {
-          valA = getHexSerial(a).toLowerCase();
-          valB = getHexSerial(b).toLowerCase();
-        } else if (currentSortCol === "issued_at") {
-          valA = Number(a.issued_at) || 0;
-          valB = Number(b.issued_at) || 0;
-        } else if (currentSortCol === "expires_at") {
-          valA = Number(a.expires_at) || 0;
-          valB = Number(b.expires_at) || 0;
-        } else if (currentSortCol === "status") {
-          valA = (a.status || "").toLowerCase();
-          valB = (b.status || "").toLowerCase();
-        } else {
-          valA = 0;
-          valB = 0;
-        }
-
-        if (valA < valB) return currentSortDir === "asc" ? -1 : 1;
-        if (valA > valB) return currentSortDir === "asc" ? 1 : -1;
-        return 0;
-      });
-
-      certs.forEach((c) => {
-        const tr = document.createElement("tr");
-        const isRevoked = c.status === "REVOKED";
-        const statusBadge = isRevoked
-          ? `<span class="badge badge-revoked">Revoked</span>`
-          : `<span class="badge badge-active">Active</span>`;
-
-        const issuedObj = new Date(c.issued_at * 1000);
-        const expiresObj = new Date(c.expires_at * 1000);
-        const issuedFormatted = formatDateTime(c.issued_at);
-        const expiresFormatted = formatDateTime(c.expires_at);
-        const issuedTooltip = issuedObj.toLocaleString();
-        const expiresTooltip = expiresObj.toLocaleString();
-
-        const hexSerial = getHexSerial(c);
-        const shortSerial = hexSerial && hexSerial.length > 16
-          ? `${hexSerial.slice(0, 8)}...${hexSerial.slice(-8)}`
-          : (hexSerial || "");
-
-        const reqIdHtml = c.request_id
-          ? `<span style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">req: ${escapeHtml(c.request_id)}</span>`
-          : "";
-
-        const pinHtml = (!isRevoked && c.pin)
-          ? `<button class="badge-pin" data-action="copy-pin" data-pin="${escapeHtml(c.pin)}" title="Click to copy Import PIN">PIN: <strong>${escapeHtml(c.pin)}</strong></button>`
-          : "";
-
-        const metaLine = (reqIdHtml || pinHtml)
-          ? `<div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 3px; flex-wrap: wrap;">${reqIdHtml}${pinHtml}</div>`
-          : "";
-
-        const serialCellHtml = `
-          <span class="serial-cell">
-            <code title="Hex Serial: ${escapeHtml(hexSerial)} (Matches OPNsense / OpenSSL CRL)">${escapeHtml(shortSerial)}</code>
-            <button class="btn-copy" data-action="copy-serial" data-serial="${escapeHtml(hexSerial)}" title="Copy full hex serial number: ${escapeHtml(hexSerial)}">
-              ${copyIconSvg}
-            </button>
-          </span>
-        `;
-
-        const vlanBadgeHtml = isRevoked
-          ? `<span class="badge badge-vlan">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`
-          : `<span class="badge badge-vlan clickable" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}" title="Click to edit VLAN assignment">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`;
-
-        const reasonDisplay = c.revocation_reason_label || formatRevocationReason(c.revocation_reason);
-        const downloadBtnHtml = (!isRevoked && c.download_available)
-          ? `<a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download" class="btn-sm btn-download" title="Download .p12 certificate bundle (available for 24h)">⬇️ .p12</a>`
-          : "";
-        const actionHtml = isRevoked
-          ? `<span class="badge" style="font-size: 0.72rem; font-weight: normal; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); white-space: nowrap;" title="Revocation Reason: ${escapeHtml(c.revocation_reason || 'Revoked')}">${escapeHtml(reasonDisplay)}</span>`
-          : `${downloadBtnHtml}
-             <button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
-             <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>`;
-
-        tr.innerHTML = `
-          <td><div><strong>${escapeHtml(c.device_name)}</strong></div>${metaLine}</td>
-          <td>${escapeHtml(c.platform)}</td>
-          <td>${vlanBadgeHtml}</td>
-          <td>${serialCellHtml}</td>
-          <td title="${escapeHtml(issuedTooltip)}" class="timestamp-cell"><span style="cursor: help; border-bottom: 1px dotted var(--text-muted);">${issuedFormatted}</span></td>
-          <td title="${escapeHtml(expiresTooltip)}" class="timestamp-cell"><span style="cursor: help; border-bottom: 1px dotted var(--text-muted);">${expiresFormatted}</span></td>
-          <td>${statusBadge}</td>
-          <td>${actionHtml}</td>
-        `;
-        inventoryTbody.appendChild(tr);
-      });
+      renderInventoryTable();
     } catch (e) {
       console.error("Inventory load failed", e);
     }
+  }
+
+  function renderInventoryTable() {
+    inventoryTbody.innerHTML = "";
+    if (!cachedCerts || cachedCerts.length === 0) {
+      inventoryEmpty.classList.remove("hidden");
+      return;
+    }
+    inventoryEmpty.classList.add("hidden");
+
+    // Sort certificates based on selected column and direction
+    const sortedCerts = [...cachedCerts].sort((a, b) => {
+      let valA, valB;
+      if (currentSortCol === "device_name") {
+        valA = (a.device_name || "").toLowerCase();
+        valB = (b.device_name || "").toLowerCase();
+      } else if (currentSortCol === "platform") {
+        valA = (a.platform || "").toLowerCase();
+        valB = (b.platform || "").toLowerCase();
+      } else if (currentSortCol === "vlan_id") {
+        valA = Number(a.vlan_id) || 0;
+        valB = Number(b.vlan_id) || 0;
+      } else if (currentSortCol === "serial_hex") {
+        valA = getHexSerial(a).toLowerCase();
+        valB = getHexSerial(b).toLowerCase();
+      } else if (currentSortCol === "issued_at") {
+        valA = Number(a.issued_at) || 0;
+        valB = Number(b.issued_at) || 0;
+      } else if (currentSortCol === "expires_at") {
+        valA = Number(a.expires_at) || 0;
+        valB = Number(b.expires_at) || 0;
+      } else if (currentSortCol === "status") {
+        valA = (a.status || "").toLowerCase();
+        valB = (b.status || "").toLowerCase();
+      } else {
+        valA = 0;
+        valB = 0;
+      }
+
+      if (valA < valB) return currentSortDir === "asc" ? -1 : 1;
+      if (valA > valB) return currentSortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    sortedCerts.forEach((c) => {
+      const tr = document.createElement("tr");
+      const isRevoked = c.status === "REVOKED";
+      const statusBadge = isRevoked
+        ? `<span class="badge badge-revoked">Revoked</span>`
+        : `<span class="badge badge-active">Active</span>`;
+
+      const issuedObj = new Date(c.issued_at * 1000);
+      const expiresObj = new Date(c.expires_at * 1000);
+      const issuedFormatted = formatDateTime(c.issued_at);
+      const expiresFormatted = formatDateTime(c.expires_at);
+      const issuedTooltip = issuedObj.toLocaleString();
+      const expiresTooltip = expiresObj.toLocaleString();
+
+      const hexSerial = getHexSerial(c);
+      const shortSerial = hexSerial && hexSerial.length > 16
+        ? `${hexSerial.slice(0, 8)}...${hexSerial.slice(-8)}`
+        : (hexSerial || "");
+
+      const reqIdHtml = c.request_id
+        ? `<span style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">req: ${escapeHtml(c.request_id)}</span>`
+        : "";
+
+      const pinHtml = (!isRevoked && c.pin)
+        ? `<button class="badge-pin" data-action="copy-pin" data-pin="${escapeHtml(c.pin)}" title="Click to copy Import PIN">PIN: <strong>${escapeHtml(c.pin)}</strong></button>`
+        : "";
+
+      const metaLine = (reqIdHtml || pinHtml)
+        ? `<div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 3px; flex-wrap: wrap;">${reqIdHtml}${pinHtml}</div>`
+        : "";
+
+      const serialCellHtml = `
+        <span class="serial-cell">
+          <code title="Hex Serial: ${escapeHtml(hexSerial)} (Matches OPNsense / OpenSSL CRL)">${escapeHtml(shortSerial)}</code>
+          <button class="btn-copy" data-action="copy-serial" data-serial="${escapeHtml(hexSerial)}" title="Copy full hex serial number: ${escapeHtml(hexSerial)}">
+            ${copyIconSvg}
+          </button>
+        </span>
+      `;
+
+      const vlanBadgeHtml = isRevoked
+        ? `<span class="badge badge-vlan">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`
+        : `<span class="badge badge-vlan clickable" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}" title="Click to edit VLAN assignment">${escapeHtml(c.vlan_label || "VLAN " + c.vlan_id)}</span>`;
+
+      const reasonDisplay = c.revocation_reason_label || formatRevocationReason(c.revocation_reason);
+      const downloadBtnHtml = (!isRevoked && c.download_available)
+        ? `<a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download" class="btn-sm btn-download" title="Download .p12 certificate bundle (available for 24h)">⬇️ .p12</a>`
+        : "";
+      const actionHtml = isRevoked
+        ? `<span class="badge" style="font-size: 0.72rem; font-weight: normal; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); white-space: nowrap;" title="Revocation Reason: ${escapeHtml(c.revocation_reason || 'Revoked')}">${escapeHtml(reasonDisplay)}</span>`
+        : `<div class="action-buttons">
+            ${downloadBtnHtml}
+            <button class="btn-sm btn-vlan" data-action="open-vlan" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}" data-vlan="${c.vlan_id}">✏️ VLAN</button>
+            <button class="btn-sm btn-revoke" data-action="open-revoke" data-serial="${escapeHtml(c.serial_number)}" data-name="${escapeHtml(c.device_name)}">🚫 Revoke</button>
+          </div>`;
+
+      tr.innerHTML = `
+        <td><div><strong>${escapeHtml(c.device_name)}</strong></div>${metaLine}</td>
+        <td>${escapeHtml(c.platform)}</td>
+        <td>${vlanBadgeHtml}</td>
+        <td>${serialCellHtml}</td>
+        <td title="${escapeHtml(issuedTooltip)}" class="timestamp-cell">${issuedFormatted}</td>
+        <td title="${escapeHtml(expiresTooltip)}" class="timestamp-cell">${expiresFormatted}</td>
+        <td>${statusBadge}</td>
+        <td class="actions-cell">${actionHtml}</td>
+      `;
+      inventoryTbody.appendChild(tr);
+    });
   }
 
   // --- Event Delegation for Tables ---
@@ -791,7 +801,7 @@
       }
 
       updateSortHeaders();
-      loadInventory();
+      renderInventoryTable();
     });
   }
 

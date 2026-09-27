@@ -641,7 +641,24 @@ tr:last-child td {
   font-weight: 600;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   transition: all 0.2s;
+}
+
+.action-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.actions-cell {
+  white-space: nowrap;
+  width: 1%;
 }
 
 .btn-approve {
