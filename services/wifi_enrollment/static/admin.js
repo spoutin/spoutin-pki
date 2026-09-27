@@ -318,8 +318,12 @@
           ? `<span class="badge badge-revoked">Revoked</span>`
           : `<span class="badge badge-active">Active</span>`;
 
-        const issuedDate = new Date(c.issued_at * 1000).toLocaleDateString();
-        const expiresDate = new Date(c.expires_at * 1000).toLocaleDateString();
+        const issuedObj = new Date(c.issued_at * 1000);
+        const expiresObj = new Date(c.expires_at * 1000);
+        const issuedDate = issuedObj.toLocaleDateString();
+        const expiresDate = expiresObj.toLocaleDateString();
+        const issuedTooltip = issuedObj.toLocaleString();
+        const expiresTooltip = expiresObj.toLocaleString();
         const shortSerial = c.serial_number && String(c.serial_number).length > 16
           ? `${String(c.serial_number).slice(0, 8)}...${String(c.serial_number).slice(-8)}`
           : (c.serial_number || "");
@@ -364,8 +368,8 @@
           <td>${escapeHtml(c.platform)}</td>
           <td>${vlanBadgeHtml}</td>
           <td>${serialCellHtml}</td>
-          <td>${issuedDate}</td>
-          <td>${expiresDate}</td>
+          <td title="${escapeHtml(issuedTooltip)}"><span class="timestamp-tooltip" style="cursor: help; text-decoration: underline dotted var(--text-muted);">${issuedDate}</span></td>
+          <td title="${escapeHtml(expiresTooltip)}"><span class="timestamp-tooltip" style="cursor: help; text-decoration: underline dotted var(--text-muted);">${expiresDate}</span></td>
           <td>${statusBadge}</td>
           <td>${actionHtml}</td>
         `;

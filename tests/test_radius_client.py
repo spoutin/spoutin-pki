@@ -185,3 +185,60 @@ def test_upsert_user_new(mock_post):
     assert add_call.kwargs["json"]["user"]["vlan"] == "8"
     assert add_call.kwargs["json"]["user"]["description"] == "Spoutin PKI | vlan:8 | req:xyz"
 
+
+@patch("requests.Session.get")
+@patch("requests.Session.post")
+def test_push_crl_success(mock_post, mock_get):
+    mock_post_resp = MagicMock()
+    mock_post_resp.status_code = 200
+    mock_post_resp.json.return_value = {"status": "saved"}
+    mock_post.return_value = mock_post_resp
+
+    mock_get_resp = MagicMock()
+    mock_get_resp.status_code = 200
+    mock_get_resp.json.return_value = {
+        "eap": {
+            "crl": {
+                "crl-uuid-1": {"value": "Spoutin Wi-Fi CRL", "selected": 1}
+            }
+        }
+    }
+    mock_get.return_value = mock_get_resp
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    success = client.push_crl("-----BEGIN X509 CRL-----\nMOCK\n-----END X509 CRL-----", caref="ca-inter-123")
+    assert success is True
+
+    call_args = mock_post.call_args_list[0]
+    assert "/api/trust/crl/set/ca-inter-123" in call_args.args[0]
+    assert call_args.kwargs["data"]["crl[crlmethod]"] == "existing"
+    assert call_args.kwargs["data"]["crl[descr]"] == "Spoutin Wi-Fi CRL"
+
+
+@patch("requests.Session.post")
+def test_restart_service_success(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_post.return_value = mock_resp
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    assert client.restart_service() is True
+    assert "/api/freeradius/service/restart" in mock_post.call_args.args[0]
+
+
+@patch("requests.Session.get")
+def test_get_intermediate_ca_refid(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "rows": [
+            {"descr": "Root CA", "refid": "root-1"},
+            {"descr": "step-ca Intermediate CA", "refid": "inter-2"},
+        ]
+    }
+    mock_get.return_value = mock_resp
+
+    client = FreeRadiusClient("https://opnsense.local", "key", "secret")
+    assert client.get_intermediate_ca_refid() == "inter-2"
+
+

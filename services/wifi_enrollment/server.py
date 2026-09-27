@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.16",
+        version="0.2.17",
         lifespan=lifespan,
     )
 
@@ -717,19 +717,30 @@ def create_app(
             logger.error(f"step-ca revocation failed: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Failed to revoke certificate in step-ca: {e}")
 
-        # 2. Optionally delete/disable FreeRADIUS user in OPNsense
+        radius: Optional[FreeRadiusClient] = app.state.radius_client
+
+        # 2. Push updated CRL directly to OPNsense and restart FreeRADIUS daemon
+        if radius:
+            try:
+                crl_pem = step.get_crl(as_pem=True)
+                if crl_pem:
+                    radius.push_crl(crl_pem)
+                    radius.restart_service()
+            except Exception as e:
+                logger.error(f"Failed to push updated CRL to OPNsense during revocation: {e}", exc_info=True)
+
+        # 3. Optionally delete/disable FreeRADIUS user in OPNsense
         if body.scope == "USER_AND_CERT":
-            radius: Optional[FreeRadiusClient] = app.state.radius_client
             if radius:
                 try:
                     radius.delete_user(cert["device_name"])
                 except Exception as e:
                     logger.error(f"Failed to delete FreeRADIUS user during revocation: {e}", exc_info=True)
 
-        # 3. Update database record
+        # 4. Update database record
         db.revoke_certificate(serial, reason=body.reason, scope=body.scope)
 
-        # 4. Immediately purge in-memory ephemeral .p12
+        # 5. Immediately purge in-memory ephemeral .p12
         sm.revoke_download(serial)
 
         # Notify admin dashboard via SSE

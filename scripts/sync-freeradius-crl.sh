@@ -208,10 +208,10 @@ if [ "$HTTP_CODE" = "200" ]; then
         chmod 600 "$CA_OPN"
     fi
 
-    # Gracefully reload radiusd to refresh certificate store
+    # Restart radiusd to refresh certificate store and flush SSL session cache
     if service radiusd status >/dev/null 2>&1; then
-        service radiusd reload
-        logger -t sync-freeradius-crl "Successfully updated FreeRADIUS CRL from $CRL_URL and reloaded radiusd."
+        service radiusd restart
+        logger -t sync-freeradius-crl "Successfully updated FreeRADIUS CRL from $CRL_URL and restarted radiusd."
     else
         logger -t sync-freeradius-crl "Updated FreeRADIUS CRL, but radiusd is not currently running."
     fi

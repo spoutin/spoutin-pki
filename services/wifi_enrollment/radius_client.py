@@ -232,3 +232,92 @@ class FreeRadiusClient:
         resp.raise_for_status()
         data = resp.json()
         return data.get("status") == "ok"
+
+    def restart_service(self) -> bool:
+        """Restarts the FreeRADIUS daemon via OPNsense API to reload certificates/CRLs."""
+        endpoint = f"{self.url}/api/freeradius/service/restart"
+        resp = self.session.post(
+            endpoint,
+            auth=self.auth,
+            verify=self.verify_ssl,
+            json={},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return True
+
+    def get_intermediate_ca_refid(self) -> Optional[str]:
+        """Discovers the refid of the step-ca intermediate Certificate Authority in OPNsense."""
+        endpoint = f"{self.url}/api/trust/ca/search/"
+        try:
+            resp = self.session.get(endpoint, auth=self.auth, verify=self.verify_ssl, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            for row in data.get("rows", []):
+                descr = (row.get("descr") or "").lower()
+                name = (row.get("name") or "").lower()
+                if "step-ca" in descr or "intermediate" in descr or "step-ca" in name or "intermediate" in name:
+                    return row.get("refid")
+        except Exception as e:
+            logger.warning("Failed to auto-discover intermediate CA refid: %s", e)
+        return None
+
+    def push_crl(
+        self,
+        crl_pem: str | bytes,
+        caref: Optional[str] = None,
+        descr: str = "Spoutin Wi-Fi CRL",
+    ) -> bool:
+        """Pushes an updated CRL into OPNsense Trust and ensures FreeRADIUS EAP is linked."""
+        target_caref = caref or self.get_intermediate_ca_refid() or "6ab45eaa5115e"
+        crl_pem_str = crl_pem.decode("utf-8") if isinstance(crl_pem, bytes) else crl_pem
+
+        endpoint = f"{self.url}/api/trust/crl/set/{target_caref}"
+        data = {
+            "crl[crlmethod]": "existing",
+            "crl[descr]": descr,
+            "crl[text]": crl_pem_str,
+            "crl[lifetime]": "9999",
+        }
+        resp = self.session.post(
+            endpoint,
+            auth=self.auth,
+            verify=self.verify_ssl,
+            data=data,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        res_json = resp.json()
+        if res_json.get("status") != "saved":
+            logger.error("Failed to save CRL to OPNsense: %s", res_json)
+            return False
+
+        self._ensure_eap_crl_selected(descr)
+        return True
+
+    def _ensure_eap_crl_selected(self, descr: str = "Spoutin Wi-Fi CRL") -> None:
+        """Ensures the CRL is actively selected in FreeRADIUS EAP configuration."""
+        try:
+            get_resp = self.session.get(
+                f"{self.url}/api/freeradius/eap/get",
+                auth=self.auth,
+                verify=self.verify_ssl,
+                timeout=10,
+            )
+            get_resp.raise_for_status()
+            eap_data = get_resp.json()
+            crl_map = eap_data.get("eap", {}).get("crl", {})
+            for refid, item in crl_map.items():
+                if item.get("value") == descr:
+                    if item.get("selected") != 1:
+                        set_resp = self.session.post(
+                            f"{self.url}/api/freeradius/eap/set",
+                            auth=self.auth,
+                            verify=self.verify_ssl,
+                            json={"eap": {"crl": refid, "enable_client_cert": "1"}},
+                            timeout=10,
+                        )
+                        set_resp.raise_for_status()
+                    break
+        except Exception as e:
+            logger.warning("Could not verify or set EAP CRL link: %s", e)

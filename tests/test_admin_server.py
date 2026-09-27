@@ -156,6 +156,9 @@ def test_admin_revocation_cert_only(admin_test_app):
 
     # step-ca was called
     step_client.revoke_certificate.assert_called_once_with("55555", reason="keyCompromise")
+    # CRL was pushed and FreeRADIUS was restarted
+    radius_client.push_crl.assert_called_once_with(b"DUMMY_CRL_BYTES")
+    radius_client.restart_service.assert_called_once()
     # FreeRADIUS delete_user was NOT called
     radius_client.delete_user.assert_not_called()
 
