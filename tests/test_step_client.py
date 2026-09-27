@@ -274,3 +274,44 @@ def test_eap_client_template_has_crldp():
     assert "https://step-ca.int.spoutin.org/1.0/crl" in content
     assert "https://wifi.int.spoutin.org/crl.pem" in content
 
+
+def test_step_client_auto_heals_ca_json_and_template(tmp_path):
+    """Verify that StepCaClient automatically wires options.x509.templateFile for lowercase jwk provisioners."""
+    import json
+    ca_config_file = tmp_path / "config" / "ca.json"
+    ca_config_file.parent.mkdir(parents=True)
+    password_file = tmp_path / "password.txt"
+    password_file.write_text("dummy-pass")
+
+    ca_data = {
+        "crl": {"enabled": True},
+        "authority": {
+            "provisioners": [
+                {
+                    "type": "jwk",
+                    "name": "admin@int.spoutin.org",
+                    "key": {"kid": "test-kid"},
+                    "encryptedKey": "dummy-enc-key",
+                }
+            ]
+        },
+    }
+    ca_config_file.write_text(json.dumps(ca_data))
+
+    client = StepCaClient(
+        ca_config_path=str(ca_config_file),
+        password_file=str(password_file),
+        provisioner_name="admin@int.spoutin.org",
+    )
+
+    with patch("services.wifi_enrollment.step_client.decrypt_jwe_key") as mock_decrypt:
+        mock_decrypt.return_value = MagicMock()
+        client.get_provisioner_key()
+
+    # Verify ca.json was auto-healed with options.x509.templateFile
+    saved_ca = json.loads(ca_config_file.read_text())
+    prov = saved_ca["authority"]["provisioners"][0]
+    assert "options" in prov
+    assert "x509" in prov["options"]
+    assert prov["options"]["x509"]["templateFile"] == "/etc/step-ca/templates/certs/eap-client.json"
+

@@ -88,7 +88,7 @@ if os.path.exists(ca_path):
             ca_changed = True
 
         for p in data.get("authority", {}).get("provisioners", []):
-            if p.get("type") == "JWK":
+            if p.get("type", "").lower() == "jwk" or p.get("name") == "admin@int.spoutin.org":
                 opt = p.setdefault("options", {}).setdefault("x509", {})
                 current_tf = opt.get("templateFile")
                 if not current_tf:

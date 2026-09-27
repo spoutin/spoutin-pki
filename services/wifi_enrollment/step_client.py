@@ -191,22 +191,64 @@ class StepCaClient:
             provisioners = ca_json.get("authority", {}).get("provisioners", [])
             target = None
             for p in provisioners:
-                if p.get("name") == self.provisioner_name and p.get("type") == "JWK":
+                if (p.get("name") == self.provisioner_name or not self.provisioner_name) and p.get("type", "").lower() == "jwk":
                     target = p
                     break
             if not target and provisioners:
                 target = provisioners[0]
 
             if target:
-                opt_tf = target.get("options", {}).get("x509", {}).get("templateFile")
-                if not opt_tf:
-                    logger.warning(
-                        "step-ca provisioner '%s' is missing 'options.x509.templateFile' in %s. "
-                        "Certificates will be issued with default step-ca template without crlDistributionPoints, "
-                        "which may cause OpenSSL error 44 (different CRL scope) in FreeRADIUS.",
-                        target.get("name"),
-                        self.ca_config_path,
-                    )
+                opt = target.setdefault("options", {}).setdefault("x509", {})
+                current_tf = opt.get("templateFile")
+                ca_needs_save = False
+
+                # Auto-wire templateFile if missing
+                primary_tf = "/etc/step-ca/templates/certs/eap-client.json"
+                if not current_tf and os.path.exists(os.path.dirname(self.ca_config_path)):
+                    opt["templateFile"] = primary_tf
+                    current_tf = primary_tf
+                    ca_needs_save = True
+
+                # Self-heal template on disk if writable
+                if current_tf and os.path.exists(os.path.dirname(self.ca_config_path)):
+                    try:
+                        os.makedirs(os.path.dirname(current_tf), exist_ok=True)
+                        tpl_needs_write = True
+                        if os.path.exists(current_tf):
+                            with open(current_tf, "r", encoding="utf-8") as tf_in:
+                                if "crlDistributionPoints" in tf_in.read():
+                                    tpl_needs_write = False
+                        if tpl_needs_write:
+                            full_template_content = """{
+  "subject": {{ toJson .Subject }},
+  "sans": {{ toJson .SANs }},
+  "keyUsage": ["digitalSignature", "keyEncipherment"],
+  "extKeyUsage": ["clientAuth"],
+  "crlDistributionPoints": [
+    "https://step-ca.int.spoutin.org/1.0/crl",
+    "https://wifi.int.spoutin.org/crl.pem"
+  ]
+}
+"""
+                            with open(current_tf, "w", encoding="utf-8") as tf_out:
+                                tf_out.write(full_template_content)
+                            os.chmod(current_tf, 0o644)
+                            logger.info("Self-healed template with crlDistributionPoints at %s", current_tf)
+                            ca_needs_save = True
+                    except Exception as e:
+                        logger.debug("Could not verify/write template %s: %s", current_tf, e)
+
+                if ca_needs_save:
+                    try:
+                        with open(self.ca_config_path, "w", encoding="utf-8") as f:
+                            json.dump(ca_json, f, indent=2)
+                            f.write("\n")
+                        logger.info("Self-healed ca.json with options.x509.templateFile = %s", current_tf)
+                        import subprocess
+                        subprocess.run(["systemctl", "restart", "step-ca"], check=False, timeout=10)
+                    except Exception as e:
+                        logger.debug("Could not auto-update ca.json: %s", e)
+
                 kid = target.get("key", {}).get("kid", "")
                 enc_key = target.get("encryptedKey", "")
                 if enc_key and password:
