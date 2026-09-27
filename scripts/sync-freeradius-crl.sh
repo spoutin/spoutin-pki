@@ -208,6 +208,28 @@ if [ "$HTTP_CODE" = "200" ]; then
         chmod 600 "$CA_OPN"
     fi
 
+    # Update OPNsense Trust Store config.xml so the Web GUI reflects the latest CRL
+    if [ -f "/usr/local/bin/php" ]; then
+        /usr/local/bin/php << 'PHP_UPDATE_CRL' >/dev/null 2>&1 || true
+<?php
+require_once('config.inc');
+use OPNsense\Core\Config;
+$crl_text = @file_get_contents('/usr/local/etc/raddb/certs/step-ca.crl');
+if (!empty($crl_text)) {
+    $configObj = Config::getInstance()->object();
+    if (isset($configObj->crl)) {
+        foreach ($configObj->crl as $crl) {
+            if ((string)$crl->descr == 'Spoutin Wi-Fi CRL') {
+                $crl->text = base64_encode($crl_text);
+                Config::getInstance()->save();
+                break;
+            }
+        }
+    }
+}
+PHP_UPDATE_CRL
+    fi
+
     # Restart radiusd to refresh certificate store and flush SSL session cache
     if service radiusd status >/dev/null 2>&1; then
         service radiusd restart

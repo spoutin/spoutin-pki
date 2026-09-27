@@ -74,6 +74,14 @@ def test_list_and_filter_certificates(db):
     active_results = db.list_certificates(status="ACTIVE")
     assert len(active_results) == 2
 
+    # Hex lookup and search
+    # Decimal 2222 in hex is 8AE
+    assert db.get_certificate("8AE") is not None
+    assert db.get_certificate("8AE")["device_name"] == "phone-beta"
+    hex_search_results = db.list_certificates(search="8AE")
+    assert len(hex_search_results) == 1
+    assert hex_search_results[0]["device_name"] == "phone-beta"
+
 
 def test_revoke_certificate(db):
     now = int(time.time())

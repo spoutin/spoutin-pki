@@ -209,7 +209,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.17",
+        version="0.2.18",
         lifespan=lifespan,
     )
 
@@ -657,6 +657,13 @@ def create_app(
             reason = c.get("revocation_reason")
             c["revocation_reason_label"] = REVOCATION_REASON_LABELS.get(reason, reason) if reason else None
             serial = c.get("serial_number")
+            if serial:
+                try:
+                    c["serial_hex"] = format(int(serial), "X")
+                except ValueError:
+                    c["serial_hex"] = str(serial).upper()
+            else:
+                c["serial_hex"] = None
             c["download_available"] = bool(
                 c.get("status") != "REVOKED"
                 and serial

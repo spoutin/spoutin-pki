@@ -172,6 +172,7 @@ def test_admin_revocation_cert_only(admin_test_app):
     assert len(revoked_certs) == 1
     assert revoked_certs[0]["revocation_reason"] == "keyCompromise"
     assert revoked_certs[0]["revocation_reason_label"] == "Key Compromise"
+    assert revoked_certs[0]["serial_hex"] == "D903"
 
 
 def test_admin_revocation_user_and_cert(admin_test_app):

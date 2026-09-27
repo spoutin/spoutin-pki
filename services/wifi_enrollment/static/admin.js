@@ -81,6 +81,10 @@
   const vlanModalConfirmBtn = document.getElementById("vlan-modal-confirm-btn");
   let activeVlanSerial = null;
 
+  // Sorting state for Inventory Table
+  let currentSortCol = "issued_at";
+  let currentSortDir = "desc";
+
   // Metric Cards
   const cardActive = document.getElementById("card-active");
   const cardRevoked = document.getElementById("card-revoked");
@@ -163,6 +167,7 @@
 
   // --- Initial Setup ---
   async function init() {
+    updateSortHeaders();
     await fetchProfile();
     const [, pendingList] = await Promise.all([
       refreshStats(),
@@ -311,6 +316,40 @@
       }
       inventoryEmpty.classList.add("hidden");
 
+      // Sort certificates based on selected column and direction
+      certs.sort((a, b) => {
+        let valA, valB;
+        if (currentSortCol === "device_name") {
+          valA = (a.device_name || "").toLowerCase();
+          valB = (b.device_name || "").toLowerCase();
+        } else if (currentSortCol === "platform") {
+          valA = (a.platform || "").toLowerCase();
+          valB = (b.platform || "").toLowerCase();
+        } else if (currentSortCol === "vlan_id") {
+          valA = Number(a.vlan_id) || 0;
+          valB = Number(b.vlan_id) || 0;
+        } else if (currentSortCol === "serial_hex") {
+          valA = getHexSerial(a).toLowerCase();
+          valB = getHexSerial(b).toLowerCase();
+        } else if (currentSortCol === "issued_at") {
+          valA = Number(a.issued_at) || 0;
+          valB = Number(b.issued_at) || 0;
+        } else if (currentSortCol === "expires_at") {
+          valA = Number(a.expires_at) || 0;
+          valB = Number(b.expires_at) || 0;
+        } else if (currentSortCol === "status") {
+          valA = (a.status || "").toLowerCase();
+          valB = (b.status || "").toLowerCase();
+        } else {
+          valA = 0;
+          valB = 0;
+        }
+
+        if (valA < valB) return currentSortDir === "asc" ? -1 : 1;
+        if (valA > valB) return currentSortDir === "asc" ? 1 : -1;
+        return 0;
+      });
+
       certs.forEach((c) => {
         const tr = document.createElement("tr");
         const isRevoked = c.status === "REVOKED";
@@ -320,13 +359,15 @@
 
         const issuedObj = new Date(c.issued_at * 1000);
         const expiresObj = new Date(c.expires_at * 1000);
-        const issuedDate = issuedObj.toLocaleDateString();
-        const expiresDate = expiresObj.toLocaleDateString();
+        const issuedFormatted = formatDateTime(c.issued_at);
+        const expiresFormatted = formatDateTime(c.expires_at);
         const issuedTooltip = issuedObj.toLocaleString();
         const expiresTooltip = expiresObj.toLocaleString();
-        const shortSerial = c.serial_number && String(c.serial_number).length > 16
-          ? `${String(c.serial_number).slice(0, 8)}...${String(c.serial_number).slice(-8)}`
-          : (c.serial_number || "");
+
+        const hexSerial = getHexSerial(c);
+        const shortSerial = hexSerial && hexSerial.length > 16
+          ? `${hexSerial.slice(0, 8)}...${hexSerial.slice(-8)}`
+          : (hexSerial || "");
 
         const reqIdHtml = c.request_id
           ? `<span style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">req: ${escapeHtml(c.request_id)}</span>`
@@ -342,8 +383,8 @@
 
         const serialCellHtml = `
           <span class="serial-cell">
-            <code title="Full Serial: ${escapeHtml(c.serial_number)}">${escapeHtml(shortSerial)}</code>
-            <button class="btn-copy" data-action="copy-serial" data-serial="${escapeHtml(c.serial_number)}" title="Copy full serial number">
+            <code title="Hex Serial: ${escapeHtml(hexSerial)} (Matches OPNsense / OpenSSL CRL)">${escapeHtml(shortSerial)}</code>
+            <button class="btn-copy" data-action="copy-serial" data-serial="${escapeHtml(hexSerial)}" title="Copy full hex serial number: ${escapeHtml(hexSerial)}">
               ${copyIconSvg}
             </button>
           </span>
@@ -368,8 +409,8 @@
           <td>${escapeHtml(c.platform)}</td>
           <td>${vlanBadgeHtml}</td>
           <td>${serialCellHtml}</td>
-          <td title="${escapeHtml(issuedTooltip)}"><span class="timestamp-tooltip" style="cursor: help; text-decoration: underline dotted var(--text-muted);">${issuedDate}</span></td>
-          <td title="${escapeHtml(expiresTooltip)}"><span class="timestamp-tooltip" style="cursor: help; text-decoration: underline dotted var(--text-muted);">${expiresDate}</span></td>
+          <td title="${escapeHtml(issuedTooltip)}" class="timestamp-cell"><span style="cursor: help; border-bottom: 1px dotted var(--text-muted);">${issuedFormatted}</span></td>
+          <td title="${escapeHtml(expiresTooltip)}" class="timestamp-cell"><span style="cursor: help; border-bottom: 1px dotted var(--text-muted);">${expiresFormatted}</span></td>
           <td>${statusBadge}</td>
           <td>${actionHtml}</td>
         `;
@@ -707,6 +748,65 @@
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  function formatDateTime(epochSec) {
+    if (!epochSec) return "-";
+    const d = new Date(epochSec * 1000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const year = d.getFullYear();
+    const month = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  }
+
+  function getHexSerial(c) {
+    if (c.serial_hex) return String(c.serial_hex).toUpperCase();
+    if (c.serial_number) {
+      try {
+        return BigInt(c.serial_number).toString(16).toUpperCase();
+      } catch (e) {
+        return String(c.serial_number).toUpperCase();
+      }
+    }
+    return "";
+  }
+
+  // --- Table Header Sorting ---
+  const inventoryTable = document.getElementById("inventory-table");
+  if (inventoryTable) {
+    inventoryTable.querySelector("thead").addEventListener("click", (e) => {
+      const th = e.target.closest("th.sortable");
+      if (!th) return;
+      const col = th.dataset.sort;
+      if (!col) return;
+
+      if (currentSortCol === col) {
+        currentSortDir = currentSortDir === "asc" ? "desc" : "asc";
+      } else {
+        currentSortCol = col;
+        currentSortDir = (col === "issued_at" || col === "expires_at") ? "desc" : "asc";
+      }
+
+      updateSortHeaders();
+      loadInventory();
+    });
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll("#inventory-table th.sortable").forEach((th) => {
+      const col = th.dataset.sort;
+      const icon = th.querySelector(".sort-icon");
+      th.classList.remove("sorted-asc", "sorted-desc");
+      if (col === currentSortCol) {
+        th.classList.add(currentSortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        if (icon) icon.textContent = currentSortDir === "asc" ? "▲" : "▼";
+      } else {
+        if (icon) icon.textContent = "";
+      }
+    });
   }
 
   init();

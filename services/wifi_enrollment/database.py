@@ -124,6 +124,14 @@ class CertificateDatabase:
             cur = self._conn.cursor()
             cur.execute("SELECT * FROM certificates WHERE serial_number = ?", (serial_number,))
             row = cur.fetchone()
+            if not row:
+                # Fallback: check if serial_number was passed as hex string
+                try:
+                    dec_serial = str(int(serial_number.strip(), 16))
+                    cur.execute("SELECT * FROM certificates WHERE serial_number = ?", (dec_serial,))
+                    row = cur.fetchone()
+                except ValueError:
+                    pass
             return dict(row) if row else None
 
     def list_certificates(
@@ -147,9 +155,23 @@ class CertificateDatabase:
                 params.append(vlan_id)
 
             if search:
-                query += " AND (device_name LIKE ? OR serial_number LIKE ? OR client_ip LIKE ? OR request_id LIKE ?)"
-                like_term = f"%{search}%"
-                params.extend([like_term, like_term, like_term, like_term])
+                like_term = f"%{search.strip()}%"
+                extra_serial = None
+                try:
+                    # If search term could be a hex serial, also match its decimal value
+                    clean_search = search.strip().replace(":", "").replace(" ", "")
+                    if clean_search and all(c in "0123456789abcdefABCDEF" for c in clean_search):
+                        dec_val = str(int(clean_search, 16))
+                        extra_serial = f"%{dec_val}%"
+                except ValueError:
+                    pass
+
+                if extra_serial:
+                    query += " AND (device_name LIKE ? OR serial_number LIKE ? OR serial_number LIKE ? OR client_ip LIKE ? OR request_id LIKE ?)"
+                    params.extend([like_term, like_term, extra_serial, like_term, like_term])
+                else:
+                    query += " AND (device_name LIKE ? OR serial_number LIKE ? OR client_ip LIKE ? OR request_id LIKE ?)"
+                    params.extend([like_term, like_term, like_term, like_term])
 
             query += " ORDER BY issued_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
