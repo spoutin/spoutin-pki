@@ -308,8 +308,9 @@ def test_step_client_auto_heals_ca_json_and_template(tmp_path):
         mock_decrypt.return_value = MagicMock()
         client.get_provisioner_key()
 
-    # Verify ca.json was auto-healed with options.x509.templateFile
+    # Verify ca.json was auto-healed with options.x509.templateFile and enableAdmin: false
     saved_ca = json.loads(ca_config_file.read_text())
+    assert saved_ca["authority"]["enableAdmin"] is False
     prov = saved_ca["authority"]["provisioners"][0]
     assert "options" in prov
     assert "x509" in prov["options"]

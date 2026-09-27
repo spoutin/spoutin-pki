@@ -33,6 +33,7 @@ ln -sf /etc/wifi-enrollment/.env /opt/wifi-enrollment/.env
 # Check and auto-configure step-ca ca.json and certificate templates for CRL support
 STEP_CA_JSON="/etc/step-ca/config/ca.json"
 if [ -f "$STEP_CA_JSON" ] || [ -d "/etc/step-ca" ]; then
+    rm -f /tmp/step_ca_needs_restart
     python3 - << 'EOF' || true
 import json, os, sys
 
@@ -68,15 +69,24 @@ if not os.path.exists(primary_template):
     print(f"Creating default {primary_template} with crlDistributionPoints...")
     with open(primary_template, "w", encoding="utf-8") as f:
         f.write(full_template_content)
+    os.chmod(primary_template, 0o644)
     need_restart = True
 
-# 2. Check ca.json for CRL config and wire provisioners to the template
+# 2. Check ca.json for CRL config, disable enableAdmin (forces reading ca.json), and wire provisioners
 if os.path.exists(ca_path):
     try:
         with open(ca_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         ca_changed = False
+
+        # Ensure enableAdmin is false so step-ca loads provisioners and templates from ca.json
+        authority = data.setdefault("authority", {})
+        if authority.get("enableAdmin") is not False:
+            print("Configuring 'authority.enableAdmin: false' so step-ca honors ca.json provisioner templates...")
+            authority["enableAdmin"] = False
+            ca_changed = True
+
         crl = data.get("crl")
         if not isinstance(crl, dict) or not crl.get("enabled"):
             print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
@@ -87,7 +97,7 @@ if os.path.exists(ca_path):
             }
             ca_changed = True
 
-        for p in data.get("authority", {}).get("provisioners", []):
+        for p in authority.get("provisioners", []):
             if p.get("type", "").lower() == "jwk" or p.get("name") == "admin@int.spoutin.org":
                 opt = p.setdefault("options", {}).setdefault("x509", {})
                 current_tf = opt.get("templateFile")
@@ -107,7 +117,7 @@ if os.path.exists(ca_path):
     except Exception as e:
         print(f"Notice: Could not inspect ca.json: {e}")
 
-# 3. Ensure all referenced template files have crlDistributionPoints
+# 3. Ensure all referenced template files have crlDistributionPoints and 0644 permissions
 for tp in template_paths:
     if os.path.isfile(tp):
         try:
@@ -125,13 +135,25 @@ for tp in template_paths:
                         f.write(new_content)
                     print(f"Updated {tp} with crlDistributionPoints.")
                     need_restart = True
+            os.chmod(tp, 0o644)
         except Exception as e:
             print(f"Notice: Could not update template {tp}: {e}")
 
 if need_restart:
-    sys.exit(10)
+    try:
+        with open("/tmp/step_ca_needs_restart", "w") as f:
+            f.write("1\n")
+    except Exception:
+        pass
 EOF
-    if [ $? -eq 10 ]; then
+
+    # Ensure step-ca user has ownership of templates directory if step user exists
+    if getent passwd step >/dev/null 2>&1; then
+        chown -R step:step /etc/step-ca/templates 2>/dev/null || true
+    fi
+
+    if [ -f /tmp/step_ca_needs_restart ]; then
+        rm -f /tmp/step_ca_needs_restart
         if command -v systemctl >/dev/null 2>&1; then
             echo "Restarting step-ca to apply CRL and template changes..."
             systemctl restart step-ca || true
@@ -160,6 +182,10 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable caddy.service wifi-enrollment.service spoutin-pki.target || true
 
     # Automatically restart services on package upgrade so they stay active
+    if systemctl is-enabled --quiet step-ca 2>/dev/null || systemctl is-active --quiet step-ca 2>/dev/null; then
+        echo "Restarting step-ca service..."
+        systemctl restart step-ca || true
+    fi
     if systemctl is-enabled --quiet caddy 2>/dev/null; then
         echo "Restarting caddy service..."
         systemctl restart caddy || true

@@ -22,7 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/wifi-enrollment
+ReadWritePaths=/opt/wifi-enrollment /etc/step-ca
 StandardOutput=journal
 StandardError=journal
 

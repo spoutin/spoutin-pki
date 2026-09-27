@@ -202,6 +202,12 @@ class StepCaClient:
                 current_tf = opt.get("templateFile")
                 ca_needs_save = False
 
+                # Ensure enableAdmin is false so step-ca honors ca.json provisioner templates
+                authority = ca_json.setdefault("authority", {})
+                if authority.get("enableAdmin") is not False:
+                    authority["enableAdmin"] = False
+                    ca_needs_save = True
+
                 # Auto-wire templateFile if missing
                 primary_tf = "/etc/step-ca/templates/certs/eap-client.json"
                 if not current_tf and os.path.exists(os.path.dirname(self.ca_config_path)):
