@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spoutin Wi-Fi Setup</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=0.2.20">
 </head>
 <body>
   <div class="container">
@@ -82,6 +82,18 @@
             • <strong>Assigned VLAN:</strong> <span id="approved-vlan">...</span>
           </div>
 
+          <div class="instruction-platform-select-wrapper" style="margin-top: 1rem;">
+            <label for="instruction-platform-select" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">Setup Instructions For:</label>
+            <select id="instruction-platform-select" class="instruction-select">
+              <option value="windows-11">Windows 11</option>
+              <option value="windows-10">Windows 10</option>
+              <option value="android">Android (Samsung, Pixel, etc.)</option>
+              <option value="ios">iPhone / iPad (iOS)</option>
+              <option value="macos">Mac (macOS)</option>
+              <option value="other">Other / Linux</option>
+            </select>
+          </div>
+
           <div id="platform-instructions" style="margin-top: 0.75rem;">
             <!-- Platform specific instructions injected by app.js -->
           </div>
@@ -102,6 +114,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=0.2.20"></script>
 </body>
 </html>

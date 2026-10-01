@@ -16,6 +16,7 @@
   const approvedDomain = document.getElementById("approved-domain");
   const approvedVlan = document.getElementById("approved-vlan");
   const platformInstructions = document.getElementById("platform-instructions");
+  const instructionPlatformSelect = document.getElementById("instruction-platform-select");
   const manualDownloadBtn = document.getElementById("manual-download-btn");
 
   const rejectTitle = document.getElementById("reject-title");
@@ -23,6 +24,7 @@
   const retryBtn = document.getElementById("retry-btn");
 
   let pollInterval = null;
+  let currentApprovedData = null;
 
   // Auto-sanitizer for device name input
   function sanitizeName(raw) {
@@ -49,51 +51,147 @@
 
   function getPlatformGuide(platform, identity, domain) {
     switch (platform) {
+      case "windows-11":
+      case "windows":
+        return `
+          <strong>Windows 11 Setup Steps:</strong>
+          <ol>
+            <li><strong>Import Certificate:</strong>
+              Press <kbd>Win</kbd> + <kbd>R</kbd> (Start &gt; Run), type <code>certmgr.msc</code> and press Enter (or double-click the downloaded <code>.p12</code> file).
+              <ul>
+                <li>Select <strong>Current User</strong> &gt; click <strong>Next</strong>.</li>
+                <li>Enter the 4-digit PIN above when prompted &gt; click <strong>Next</strong>.</li>
+                <li>Select <strong>Automatically select the certificate store based on the type of certificate</strong> &gt; click <strong>Finish</strong>.</li>
+              </ul>
+            </li>
+            <li><strong>Connect to Wi-Fi:</strong>
+              Press <kbd>Win</kbd> + <kbd>A</kbd> for Quick Settings (or press <kbd>Win</kbd> + <kbd>R</kbd> and run <code>ms-settings:network-wifi</code>).
+              <ul>
+                <li>Select <strong>Spoutin-Secure</strong> and click <strong>Connect</strong>.</li>
+                <li>When prompted for authentication, select <strong>Connect using a certificate</strong> and choose your certificate: <code>${identity}</code>.</li>
+              </ul>
+            </li>
+          </ol>
+        `;
+      case "windows-10":
+        return `
+          <strong>Windows 10 Setup Steps:</strong>
+          <ol>
+            <li><strong>Import Certificate:</strong>
+              Press <kbd>Win</kbd> + <kbd>R</kbd> (Start &gt; Run), type <code>certmgr.msc</code> and press Enter (or double-click the downloaded <code>.p12</code> file).
+              <ul>
+                <li>Select <strong>Current User</strong> &gt; click <strong>Next</strong>.</li>
+                <li>Enter the 4-digit PIN above when prompted &gt; click <strong>Next</strong>.</li>
+                <li>Select <strong>Automatically select the certificate store based on the type of certificate</strong> &gt; click <strong>Finish</strong>.</li>
+              </ul>
+            </li>
+            <li><strong>Configure Wi-Fi Profile:</strong>
+              Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>control.exe /name Microsoft.NetworkAndSharingCenter</code> and press Enter.
+              <ul>
+                <li>Click <strong>Set up a new connection or network</strong> &gt; choose <strong>Manually connect to a wireless network</strong>.</li>
+                <li><strong>Network name:</strong> <code>Spoutin-Secure</code></li>
+                <li><strong>Security type:</strong> <strong>WPA2-Enterprise</strong> (or <strong>WPA3-Enterprise</strong>) &gt; click <strong>Next</strong>.</li>
+                <li>Click <strong>Change connection settings</strong> &gt; open the <strong>Security</strong> tab.</li>
+                <li>Set authentication method: <strong>Microsoft: Smart Card or other certificate</strong>.</li>
+                <li>Click <strong>Settings</strong> &gt; ensure your user certificate (<code>${identity}</code>) is selected &gt; click <strong>OK</strong>.</li>
+              </ul>
+            </li>
+            <li><strong>Connect to Wi-Fi:</strong>
+              Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>ms-settings:network-wifi</code> and connect to <strong>Spoutin-Secure</strong> (or click the Wi-Fi icon in the taskbar).
+            </li>
+          </ol>
+        `;
       case "android":
         return `
           <strong>Android Setup Steps:</strong>
           <ol>
-            <li>Tap the downloaded certificate file (or go to <em>Settings &gt; Security &gt; Install from storage &gt; Wi-Fi certificate</em>).</li>
+            <li>Tap the downloaded certificate file (or go to <em>Settings &gt; Security &gt; More security settings &gt; Install from storage &gt; Wi-Fi certificate</em>).</li>
             <li>Enter the 4-digit PIN above when prompted.</li>
-            <li>In Wi-Fi settings for your network:
+            <li>In Wi-Fi settings for <strong>Spoutin-Secure</strong>:
               <ul>
                 <li><strong>EAP method:</strong> <code>TLS</code></li>
-                <li><strong>CA certificate:</strong> Select your Root CA (e.g. <code>Spoutin-Root-CA</code>)</li>
+                <li><strong>CA certificate:</strong> Select your Root CA (or <code>Trust on First Use</code> / <code>Spoutin-Root-CA</code>)</li>
                 <li><strong>Domain:</strong> <code>${domain}</code></li>
-                <li><strong>User certificate:</strong> Select the certificate you just imported</li>
+                <li><strong>User certificate:</strong> Select the certificate you just imported (<code>${identity}</code>)</li>
                 <li><strong>Identity:</strong> <code>${identity}</code></li>
               </ul>
             </li>
           </ol>
         `;
       case "ios":
-      case "macos":
         return `
-          <strong>Apple (iOS / macOS) Setup Steps:</strong>
+          <strong>iPhone / iPad (iOS) Setup Steps:</strong>
           <ol>
-            <li>Open the downloaded <code>.p12</code> file to import into Apple Keychain / Profiles.</li>
-            <li>Enter the 4-digit PIN when prompted.</li>
-            <li>Select your 802.1X Wi-Fi network and authenticate using the imported certificate identity: <code>${identity}</code>.</li>
+            <li>Open the downloaded <code>.p12</code> file to import into Apple Profiles.</li>
+            <li>Go to <em>Settings &gt; Profile Downloaded</em> (or <em>General &gt; VPN &amp; Device Management</em>) and tap <strong>Install</strong>.</li>
+            <li>Enter your device passcode, then enter the 4-digit PIN when prompted.</li>
+            <li>Select <strong>Spoutin-Secure</strong> in Wi-Fi settings and authenticate using identity <code>${identity}</code>.</li>
           </ol>
         `;
-      case "windows":
+      case "macos":
         return `
-          <strong>Windows Setup Steps:</strong>
+          <strong>Mac (macOS) Setup Steps:</strong>
           <ol>
-            <li>Double-click the downloaded <code>.p12</code> file to launch the Certificate Import Wizard.</li>
-            <li>Select <em>Current User</em>, enter the 4-digit PIN, and choose automatic store placement.</li>
-            <li>Connect to the Wi-Fi network and select this certificate when prompted.</li>
+            <li>Double-click the downloaded <code>.p12</code> file to open <strong>Keychain Access</strong>.</li>
+            <li>Select the <strong>login</strong> keychain and enter the 4-digit PIN when prompted.</li>
+            <li>In Wi-Fi settings or menu bar, connect to <strong>Spoutin-Secure</strong>.</li>
+            <li>Select your imported certificate (<code>${identity}</code>) when prompted for 802.1X authentication and click <strong>OK</strong>.</li>
           </ol>
         `;
       default:
         return `
-          <strong>General Setup Steps:</strong>
+          <strong>Linux &amp; Other Platforms:</strong>
           <ol>
-            <li>Import the <code>.p12</code> certificate bundle using the 4-digit PIN.</li>
-            <li>Configure EAP-TLS with Identity <code>${identity}</code> and Server Domain <code>${domain}</code>.</li>
+            <li>Extract the certificate and private key from the <code>.p12</code> bundle using:
+              <div style="margin: 0.35rem 0;"><code>openssl pkcs12 -in ${identity}.p12 -out ${identity}.pem -nodes</code></div>
+            </li>
+            <li>In your Wi-Fi client (e.g. NetworkManager / wpa_supplicant) for <strong>Spoutin-Secure</strong>:
+              <ul>
+                <li><strong>Security:</strong> WPA &amp; WPA2 Enterprise</li>
+                <li><strong>Authentication:</strong> TLS</li>
+                <li><strong>Identity:</strong> <code>${identity}</code></li>
+                <li><strong>Domain:</strong> <code>${domain}</code></li>
+                <li><strong>User Certificate:</strong> Select your extracted certificate</li>
+              </ul>
+            </li>
           </ol>
         `;
     }
+  }
+
+  function mapPlatformToInstructionKey(platform) {
+    if (!platform) return "other";
+    const p = String(platform).toLowerCase();
+    if (p === "windows" || p === "windows-11" || p === "win11") {
+      return "windows-11";
+    }
+    if (p === "windows-10" || p === "win10") {
+      return "windows-10";
+    }
+    if (p === "android") {
+      return "android";
+    }
+    if (p === "ios") {
+      return "ios";
+    }
+    if (p === "macos") {
+      return "macos";
+    }
+    return "other";
+  }
+
+  function updateInstructions() {
+    if (!currentApprovedData) return;
+    const selectedPlatform = instructionPlatformSelect ? instructionPlatformSelect.value : "windows-11";
+    const identity = currentApprovedData.radius_identity || currentApprovedData.device_name;
+    const domain = currentApprovedData.radius_domain || "radius.int.spoutin.org";
+    platformInstructions.innerHTML = getPlatformGuide(selectedPlatform, identity, domain);
+  }
+
+  if (instructionPlatformSelect) {
+    instructionPlatformSelect.addEventListener("change", () => {
+      updateInstructions();
+    });
   }
 
   enrollForm.addEventListener("submit", async (e) => {
@@ -143,16 +241,17 @@
       activeEventSource = null;
     }
 
+    currentApprovedData = data;
+
     approvedPin.textContent = data.pin || "----";
     approvedIdentity.textContent = data.radius_identity || data.device_name;
     approvedDomain.textContent = data.radius_domain || "radius.int.spoutin.org";
     approvedVlan.textContent = data.vlan_label || `VLAN ${data.vlan_id}`;
 
-    platformInstructions.innerHTML = getPlatformGuide(
-      data.platform,
-      data.radius_identity || data.device_name,
-      data.radius_domain || "radius.int.spoutin.org"
-    );
+    if (instructionPlatformSelect) {
+      instructionPlatformSelect.value = mapPlatformToInstructionKey(data.platform);
+    }
+    updateInstructions();
 
     if (data.download_token) {
       const dlUrl = `/api/download/${data.download_token}`;

@@ -144,6 +144,9 @@ def test_index_page(test_app):
     assert "Spoutin Wi-Fi Access" in resp.text
     assert "favicon.svg" in resp.text
     assert "logo.svg" in resp.text
+    assert "instruction-platform-select" in resp.text
+    assert 'value="windows-11"' in resp.text
+    assert 'value="windows-10"' in resp.text
 
     # Verify static assets serve properly
     favicon_resp = client.get("/static/favicon.svg")
@@ -153,6 +156,12 @@ def test_index_page(test_app):
     logo_resp = client.get("/static/logo.svg")
     assert logo_resp.status_code == 200
     assert "<svg" in logo_resp.text
+
+    app_js_resp = client.get("/static/app.js")
+    assert app_js_resp.status_code == 200
+    assert "certmgr.msc" in app_js_resp.text
+    assert "Microsoft.NetworkAndSharingCenter" in app_js_resp.text
+    assert "ms-settings:network-wifi" in app_js_resp.text
 
 
 def test_status_events_endpoint(test_app):
