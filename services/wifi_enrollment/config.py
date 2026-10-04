@@ -21,7 +21,18 @@ class Settings(BaseSettings):
     REQUEST_TTL_SECONDS: int = 900       # 15 minutes
     MAX_PENDING_REQUESTS: int = 10
 
-    # step-ca REST API
+    # CA Provider ("infisical" or "step-ca")
+    CA_PROVIDER: str = "infisical"
+
+    # Infisical PKI API (Self-Hosted or Cloud)
+    INFISICAL_URL: str = "https://secrets.int.spoutin.org"
+    INFISICAL_CLIENT_ID: str = ""
+    INFISICAL_CLIENT_SECRET: str = ""
+    INFISICAL_PROJECT_ID: str = ""
+    INFISICAL_CA_ID: str = ""
+    INFISICAL_VERIFY_SSL: bool = True
+
+    # step-ca REST API (legacy/fallback)
     STEP_CA_URL: str = "https://127.0.0.1:9000"
     STEP_CA_CONFIG_PATH: str = "/etc/step-ca/config/ca.json"
     STEP_CA_PROVISIONER_NAME: str = "admin@int.spoutin.org"
@@ -37,6 +48,7 @@ class Settings(BaseSettings):
     OPNSENSE_API_KEY: str = ""
     OPNSENSE_API_SECRET: str = ""
     OPNSENSE_VERIFY_SSL: bool = False
+    OPNSENSE_INTERMEDIATE_CA_REFID: str = ""
 
     # Slack App (Socket Mode & OAuth)
     SLACK_BOT_TOKEN: str = ""

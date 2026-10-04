@@ -29,15 +29,17 @@ class SlackEnrollmentHandler:
         self,
         app: App,
         state_manager: StateManager,
-        step_client: StepCaClient,
-        radius_client: FreeRadiusClient,
-        channel_id: str,
+        ca_client: Any = None,
+        radius_client: Optional[FreeRadiusClient] = None,
+        channel_id: str = "",
         database: Optional[CertificateDatabase] = None,
         broadcaster: Optional[Any] = None,
+        step_client: Any = None,
     ):
         self.app = app
         self.state_manager = state_manager
-        self.step_client = step_client
+        self.ca_client = ca_client or step_client
+        self.step_client = self.ca_client
         self.radius_client = radius_client
         self.channel_id = channel_id
         self.database = database
@@ -232,25 +234,44 @@ class SlackEnrollmentHandler:
         logger.info(f"Processing approval for request {request_id}: {approved_name} on VLAN {vlan.value}")
 
         # 1. Generate key and CSR
-        private_key, csr_pem = self.step_client.generate_key_and_csr(approved_name)
+        private_key, csr_pem = self.ca_client.generate_key_and_csr(approved_name)
 
-        # 2. Get step-ca token
-        token = self.step_client.generate_provisioner_token(approved_name)
-
-        # 3. Sign CSR via step-ca REST API
-        leaf_pem, chain_pem = self.step_client.sign_csr(csr_pem, token)
-
-        # Read Root & Intermediate CA certificates from configured paths if available
-        root_pem = b""
-        inter_pem = b""
-        if os.path.exists(self.step_client.root_cert_path):
-            with open(self.step_client.root_cert_path, "rb") as f:
-                root_pem = f.read()
-        if os.path.exists(self.step_client.intermediate_cert_path):
-            with open(self.step_client.intermediate_cert_path, "rb") as f:
-                inter_pem = f.read()
-        elif chain_pem:
-            inter_pem = chain_pem[0]
+        cert_id = None
+        leaf_bytes = b""
+        if hasattr(self.ca_client, "generate_provisioner_token"):
+            # Step-ca flow
+            token = self.ca_client.generate_provisioner_token(approved_name)
+            leaf_pem, chain_pem = self.ca_client.sign_csr(csr_pem, token)
+            root_pem = b""
+            inter_pem = b""
+            if hasattr(self.ca_client, "root_cert_path") and os.path.exists(self.ca_client.root_cert_path):
+                with open(self.ca_client.root_cert_path, "rb") as f:
+                    root_pem = f.read()
+            if hasattr(self.ca_client, "intermediate_cert_path") and os.path.exists(self.ca_client.intermediate_cert_path):
+                with open(self.ca_client.intermediate_cert_path, "rb") as f:
+                    inter_pem = f.read()
+            elif chain_pem:
+                inter_pem = chain_pem[0] if isinstance(chain_pem[0], bytes) else chain_pem[0].encode("utf-8")
+            leaf_bytes = leaf_pem.encode("utf-8") if isinstance(leaf_pem, str) else leaf_pem
+            build_p12 = lambda p: self.ca_client.build_p12_bundle(
+                private_key=private_key,
+                cert_pem=leaf_bytes,
+                intermediate_pem=inter_pem,
+                root_pem=root_pem,
+                pin=p,
+                friendly_name=approved_name,
+            )
+        else:
+            # Infisical flow
+            leaf_pem, chain_pem, cert_id, serial_ret = self.ca_client.sign_csr(csr_pem)
+            leaf_bytes = leaf_pem.encode("utf-8") if isinstance(leaf_pem, str) else leaf_pem
+            build_p12 = lambda p: self.ca_client.build_p12_bundle(
+                private_key=private_key,
+                cert_pem=leaf_bytes,
+                chain_pems=chain_pem,
+                pin=p,
+                friendly_name=approved_name,
+            )
 
         # 4. Generate 4-digit PIN and build .p12 bundle
         record = self.state_manager.get_request(request_id)
@@ -273,7 +294,7 @@ class SlackEnrollmentHandler:
         serial_str: Optional[str] = None
         try:
             from cryptography import x509
-            leaf_cert = x509.load_pem_x509_certificate(leaf_pem)
+            leaf_cert = x509.load_pem_x509_certificate(leaf_bytes)
             serial_str = str(leaf_cert.serial_number)
             if self.database:
                 opn_uuid = self.radius_client.get_user_uuid(approved_name)
@@ -285,24 +306,18 @@ class SlackEnrollmentHandler:
                     vlan_id=vlan.value,
                     vlan_label=vlan.label,
                     client_ip=record.client_ip,
-                    cert_pem=leaf_pem.decode("utf-8") if isinstance(leaf_pem, bytes) else leaf_pem,
+                    cert_pem=leaf_bytes.decode("utf-8") if isinstance(leaf_bytes, bytes) else leaf_bytes,
                     issued_at=now,
                     expires_at=now + 52560 * 3600,
                     opnsense_uuid=opn_uuid,
                     request_id=request_id,
                     pin=pin,
+                    certificate_id=cert_id,
                 )
         except Exception as e:
             logger.error(f"Failed to record certificate to database: {e}", exc_info=True)
 
-        p12_bytes = self.step_client.build_p12_bundle(
-            private_key=private_key,
-            cert_pem=leaf_pem,
-            intermediate_pem=inter_pem,
-            root_pem=root_pem,
-            pin=pin,
-            friendly_name=approved_name,
-        )
+        p12_bytes = build_p12(pin)
 
         # 6. Mark request as approved in state manager
         download_token, final_pin = self.state_manager.approve_request(

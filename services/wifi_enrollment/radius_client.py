@@ -19,11 +19,13 @@ class FreeRadiusClient:
         api_key: str,
         api_secret: str,
         verify_ssl: bool = False,
+        intermediate_ca_refid: Optional[str] = None,
     ):
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.api_secret = api_secret
         self.verify_ssl = verify_ssl
+        self.intermediate_ca_refid = intermediate_ca_refid
         self.auth = (self.api_key, self.api_secret)
 
         self.session = requests.Session()
@@ -247,7 +249,10 @@ class FreeRadiusClient:
         return True
 
     def get_intermediate_ca_refid(self) -> Optional[str]:
-        """Discovers the refid of the step-ca intermediate Certificate Authority in OPNsense."""
+        """Discovers the refid of the intermediate Certificate Authority in OPNsense."""
+        if self.intermediate_ca_refid:
+            return self.intermediate_ca_refid
+
         endpoint = f"{self.url}/api/trust/ca/search/"
         try:
             resp = self.session.get(endpoint, auth=self.auth, verify=self.verify_ssl, timeout=10)
@@ -256,7 +261,7 @@ class FreeRadiusClient:
             for row in data.get("rows", []):
                 descr = (row.get("descr") or "").lower()
                 name = (row.get("name") or "").lower()
-                if "step-ca" in descr or "intermediate" in descr or "step-ca" in name or "intermediate" in name:
+                if any(k in descr or k in name for k in ("infisical", "intermediate", "step-ca", "spoutin")):
                     return row.get("refid")
         except Exception as e:
             logger.warning("Failed to auto-discover intermediate CA refid: %s", e)
@@ -269,7 +274,10 @@ class FreeRadiusClient:
         descr: str = "Spoutin Wi-Fi CRL",
     ) -> bool:
         """Pushes an updated CRL into OPNsense Trust and ensures FreeRADIUS EAP is linked."""
-        target_caref = caref or self.get_intermediate_ca_refid() or "6ab45eaa5115e"
+        target_caref = caref or self.get_intermediate_ca_refid()
+        if not target_caref:
+            logger.error("Cannot push CRL: no intermediate CA refid found in OPNsense.")
+            return False
         crl_pem_str = crl_pem.decode("utf-8") if isinstance(crl_pem, bytes) else crl_pem
 
         endpoint = f"{self.url}/api/trust/crl/set/{target_caref}"

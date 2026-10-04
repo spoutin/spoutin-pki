@@ -170,3 +170,22 @@ def test_status_events_endpoint(test_app):
 
     resp404 = client.get("/api/status/non-existent-id/events")
     assert resp404.status_code == 404
+
+
+def test_crl_endpoint_with_infisical():
+    mock_ca = MagicMock()
+    mock_ca.get_crl.return_value = b"-----BEGIN X509 CRL-----\ninfisical-crl\n-----END X509 CRL-----"
+
+    app = create_app(ca_client=mock_ca)
+    client = TestClient(app)
+
+    resp = client.get("/crl.pem")
+    assert resp.status_code == 200
+    assert b"infisical-crl" in resp.content
+    assert "ETag" in resp.headers
+    mock_ca.get_crl.assert_called_once_with(as_pem=True)
+
+    # Test conditional 304 Not Modified
+    etag = resp.headers["ETag"]
+    resp304 = client.get("/crl.pem", headers={"If-None-Match": etag})
+    assert resp304.status_code == 304

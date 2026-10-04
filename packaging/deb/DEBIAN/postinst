@@ -1,24 +1,8 @@
 #!/bin/sh
 set -e
 
-# Create caddy user and group if missing
-if ! getent group caddy >/dev/null 2>&1; then
-    groupadd --system caddy
-fi
-
-if ! getent passwd caddy >/dev/null 2>&1; then
-    useradd --system \
-        --gid caddy \
-        --create-home \
-        --home-dir /var/lib/caddy \
-        --shell /usr/sbin/nologin \
-        --comment "Caddy web server" \
-        caddy
-fi
-
 # Directory setup and permissions
-mkdir -p /var/log/caddy /var/lib/caddy /etc/caddy /etc/wifi-enrollment /etc/systemd/system/caddy.service.d /opt/wifi-enrollment/data
-chown -R caddy:caddy /var/log/caddy /var/lib/caddy /etc/caddy
+mkdir -p /etc/wifi-enrollment /opt/wifi-enrollment/data
 
 # Set up .env configuration
 if [ ! -f /etc/wifi-enrollment/.env ]; then
@@ -29,107 +13,6 @@ fi
 
 # Link .env to service directory
 ln -sf /etc/wifi-enrollment/.env /opt/wifi-enrollment/.env
-
-# Setup /usr/bin/caddy
-BUNDLED_CADDY="/opt/wifi-enrollment/bin/caddy"
-if [ -f "$BUNDLED_CADDY" ]; then
-    if [ ! -f /usr/bin/caddy ]; then
-        echo "Installing bundled Caddy binary with Cloudflare DNS plugin to /usr/bin/caddy..."
-        cp "$BUNDLED_CADDY" /usr/bin/caddy
-        chmod 755 /usr/bin/caddy
-    else
-        echo "Found existing Caddy binary at /usr/bin/caddy."
-        OVERWRITE_CADDY="n"
-        if [ "${DEBIAN_FRONTEND:-}" != "noninteractive" ] && [ -t 0 -o -c /dev/tty ]; then
-            printf "Existing /usr/bin/caddy detected. Overwrite with bundled Caddy (includes Cloudflare DNS plugin)? [y/N]: "
-            if [ -t 0 ]; then
-                read -r reply || reply=""
-            elif [ -c /dev/tty ]; then
-                read -r reply < /dev/tty || reply=""
-            else
-                reply=""
-            fi
-            case "$reply" in
-                [yY]|[yY][eE][sS]) OVERWRITE_CADDY="y" ;;
-                *) OVERWRITE_CADDY="n" ;;
-            esac
-        fi
-
-        if [ "$OVERWRITE_CADDY" = "y" ]; then
-            BACKUP_BIN="/usr/bin/caddy.bak.$(date +%Y%m%d%H%M%S)"
-            echo "Backing up existing /usr/bin/caddy to $BACKUP_BIN..."
-            cp /usr/bin/caddy "$BACKUP_BIN"
-            cp "$BUNDLED_CADDY" /usr/bin/caddy
-            chmod 755 /usr/bin/caddy
-            echo "Installed bundled Caddy to /usr/bin/caddy."
-        else
-            echo "Preserving existing /usr/bin/caddy. Bundled Caddy is available at $BUNDLED_CADDY."
-        fi
-    fi
-fi
-
-# Setup systemd caddy.service if not present
-BUNDLED_CADDY_SERVICE="/opt/wifi-enrollment/systemd/caddy.service"
-if [ -f "$BUNDLED_CADDY_SERVICE" ]; then
-    if [ ! -f /lib/systemd/system/caddy.service ] && [ ! -f /etc/systemd/system/caddy.service ] && [ ! -f /usr/lib/systemd/system/caddy.service ]; then
-        echo "Installing caddy.service to /etc/systemd/system/caddy.service..."
-        cp "$BUNDLED_CADDY_SERVICE" /etc/systemd/system/caddy.service
-        chmod 644 /etc/systemd/system/caddy.service
-    fi
-fi
-
-# Setup Caddyfile
-CADDYFILE_SOURCE="/opt/wifi-enrollment/caddy/Caddyfile"
-CADDYFILE_DEST="/etc/caddy/Caddyfile"
-
-mkdir -p /etc/caddy
-
-if [ -f "$CADDYFILE_SOURCE" ]; then
-    cp "$CADDYFILE_SOURCE" /etc/caddy/Caddyfile.wifi-enrollment
-    chmod 644 /etc/caddy/Caddyfile.wifi-enrollment
-
-    if [ ! -f "$CADDYFILE_DEST" ]; then
-        echo "Installing default /etc/caddy/Caddyfile..."
-        cp "$CADDYFILE_SOURCE" "$CADDYFILE_DEST"
-        chown caddy:caddy "$CADDYFILE_DEST" 2>/dev/null || true
-        chmod 644 "$CADDYFILE_DEST"
-    else
-        OVERWRITE_CADDYFILE="n"
-        if [ "${DEBIAN_FRONTEND:-}" != "noninteractive" ] && [ -t 0 -o -c /dev/tty ]; then
-            printf "Existing /etc/caddy/Caddyfile detected. Overwrite with Spoutin Wi-Fi configuration? [y/N]: "
-            if [ -t 0 ]; then
-                read -r reply || reply=""
-            elif [ -c /dev/tty ]; then
-                read -r reply < /dev/tty || reply=""
-            else
-                reply=""
-            fi
-            case "$reply" in
-                [yY]|[yY][eE][sS]) OVERWRITE_CADDYFILE="y" ;;
-                *) OVERWRITE_CADDYFILE="n" ;;
-            esac
-        fi
-
-        if [ "$OVERWRITE_CADDYFILE" = "y" ]; then
-            BACKUP_FILE="/etc/caddy/Caddyfile.bak.$(date +%Y%m%d%H%M%S)"
-            echo "Backing up existing /etc/caddy/Caddyfile to $BACKUP_FILE..."
-            cp "$CADDYFILE_DEST" "$BACKUP_FILE"
-            cp "$CADDYFILE_SOURCE" "$CADDYFILE_DEST"
-            chown caddy:caddy "$CADDYFILE_DEST" 2>/dev/null || true
-            chmod 644 "$CADDYFILE_DEST"
-            echo "Updated /etc/caddy/Caddyfile with Spoutin Wi-Fi configuration."
-        else
-            echo "================================================================================"
-            echo "[!] Existing /etc/caddy/Caddyfile was preserved."
-            echo "Please add the following Spoutin Wi-Fi reverse proxy block to your Caddyfile:"
-            echo "--------------------------------------------------------------------------------"
-            cat "$CADDYFILE_SOURCE"
-            echo "--------------------------------------------------------------------------------"
-            echo "(A copy of this configuration is also saved at /etc/caddy/Caddyfile.wifi-enrollment)"
-            echo "================================================================================"
-        fi
-    fi
-fi
 
 # Check and auto-configure step-ca ca.json and certificate templates for CRL support
 STEP_CA_JSON="/etc/step-ca/config/ca.json"
@@ -279,31 +162,26 @@ touch README.md
 # Reload systemd
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
-    echo "Enabling systemd services for spoutin-pki..."
-    systemctl enable caddy.service wifi-enrollment.service spoutin-pki.target || true
+    echo "Enabling systemd service for wifi-enrollment..."
+    systemctl enable wifi-enrollment.service || true
 
-    # Automatically restart services on package upgrade so they stay active
+    # Automatically restart service on package upgrade so it stays active
     if systemctl is-enabled --quiet step-ca 2>/dev/null || systemctl is-active --quiet step-ca 2>/dev/null; then
         echo "Restarting step-ca service..."
         systemctl restart step-ca || true
-    fi
-    if systemctl is-enabled --quiet caddy 2>/dev/null; then
-        echo "Restarting caddy service..."
-        systemctl restart caddy || true
     fi
     if systemctl is-enabled --quiet wifi-enrollment 2>/dev/null; then
         echo "Restarting wifi-enrollment service..."
         systemctl restart wifi-enrollment || true
     fi
 
-    echo "wifi-enrollment and caddy installed successfully."
+    echo "wifi-enrollment installed successfully."
     echo ""
     echo "Next steps:"
-    echo "  1. Edit /etc/wifi-enrollment/.env with your Slack & OPNsense credentials."
-    echo "  2. Edit /etc/systemd/system/caddy.service.d/override.conf with CLOUDFLARE_API_TOKEN."
-    echo "  3. Start the entire PKI stack with a single command:"
-    echo "       systemctl start spoutin-pki.target"
-    echo "     (or individually: systemctl start wifi-enrollment caddy)"
+    echo "  1. Edit /etc/wifi-enrollment/.env with your Infisical, Slack & OPNsense credentials."
+    echo "  2. Start the enrollment service:"
+    echo "       systemctl start wifi-enrollment"
+    echo "  3. (Optional) Point your reverse proxy (Caddy, Nginx, or HAProxy) to http://127.0.0.1:8000"
 fi
 
 exit 0

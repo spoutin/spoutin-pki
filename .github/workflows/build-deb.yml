@@ -46,22 +46,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-
-      - name: Install xcaddy
-        run: |
-          go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-
-      - name: Build Caddy with Cloudflare DNS Plugin
-        run: |
-          xcaddy build \
-            --with github.com/caddy-dns/cloudflare \
-            --output ./caddy-custom
-          ./caddy-custom list-modules | grep cloudflare
-
       - name: Determine Package Version
         id: get_version
         run: |
@@ -74,7 +58,7 @@ jobs:
 
       - name: Build Debian Package
         run: |
-          ./scripts/build-deb.sh "${{ steps.get_version.outputs.version }}" "amd64" "./caddy-custom"
+          ./scripts/build-deb.sh "${{ steps.get_version.outputs.version }}" "amd64"
 
       - name: Upload Debian Package Artifact
         uses: actions/upload-artifact@v4

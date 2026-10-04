@@ -37,6 +37,7 @@ from services.wifi_enrollment.models import (
     VlanOption,
     sanitize_device_name,
 )
+from services.wifi_enrollment.infisical_client import InfisicalCaClient
 from services.wifi_enrollment.radius_client import FreeRadiusClient
 from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
 from services.wifi_enrollment.state_manager import StateManager
@@ -154,17 +155,18 @@ def sync_radius_vlans(
 def create_app(
     state_manager: Optional[StateManager] = None,
     slack_handler: Optional[SlackEnrollmentHandler] = None,
-    step_client: Optional[StepCaClient] = None,
+    step_client: Optional[Any] = None,
     radius_client: Optional[FreeRadiusClient] = None,
     database: Optional[CertificateDatabase] = None,
     broadcaster: Optional[EventBroadcaster] = None,
+    ca_client: Optional[Any] = None,
 ) -> FastAPI:
     sm = state_manager or StateManager(
         ttl_seconds=settings.REQUEST_TTL_SECONDS,
         max_pending=settings.MAX_PENDING_REQUESTS,
     )
     db = database or CertificateDatabase(settings.DATABASE_PATH)
-    sc = step_client
+    sc = ca_client or step_client
     rc = radius_client
     bc = broadcaster or EventBroadcaster()
 
@@ -209,7 +211,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.21",
+        version="0.2.22",
         lifespan=lifespan,
     )
 
@@ -246,6 +248,7 @@ def create_app(
 
     app.state.state_manager = sm
     app.state.slack_handler = slack_handler
+    app.state.ca_client = sc
     app.state.step_client = sc
     app.state.radius_client = rc
     app.state.database = db
@@ -274,9 +277,9 @@ def create_app(
     @app.get("/crl.pem")
     def get_crl_endpoint(request: Request):
         """Public endpoint serving the latest Certificate Revocation List (CRL) for FreeRADIUS."""
-        client: Optional[StepCaClient] = app.state.step_client
+        client = app.state.ca_client or app.state.step_client
         if not client:
-            raise HTTPException(status_code=503, detail="step-ca client is not initialized.")
+            raise HTTPException(status_code=503, detail="CA client is not initialized.")
         try:
             is_pem = request.url.path.endswith(".pem")
             crl_bytes = client.get_crl(as_pem=is_pem)
@@ -302,7 +305,7 @@ def create_app(
             }
             return Response(content=crl_bytes, media_type=media_type, headers=headers)
         except Exception as e:
-            logger.error(f"Failed to fetch CRL from step-ca: {e}", exc_info=True)
+            logger.error(f"Failed to fetch CRL from CA: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Failed to retrieve CRL: {e}")
 
     @app.post("/api/request")
@@ -713,23 +716,24 @@ def create_app(
         if cert.get("status") == "REVOKED":
             raise HTTPException(status_code=400, detail="Certificate is already revoked.")
 
-        step: Optional[StepCaClient] = app.state.step_client
-        if not step:
-            raise HTTPException(status_code=503, detail="step-ca client is not initialized.")
+        ca = app.state.ca_client or app.state.step_client
+        if not ca:
+            raise HTTPException(status_code=503, detail="CA client is not initialized.")
 
-        # 1. Revoke certificate in step-ca (updates CRL)
+        # 1. Revoke certificate in CA (updates CRL)
+        target_id_or_serial = cert.get("certificate_id") or serial
         try:
-            step.revoke_certificate(serial, reason=body.reason)
+            ca.revoke_certificate(target_id_or_serial, reason=body.reason)
         except Exception as e:
-            logger.error(f"step-ca revocation failed: {e}", exc_info=True)
-            raise HTTPException(status_code=502, detail=f"Failed to revoke certificate in step-ca: {e}")
+            logger.error(f"CA revocation failed: {e}", exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Failed to revoke certificate in CA: {e}")
 
         radius: Optional[FreeRadiusClient] = app.state.radius_client
 
         # 2. Push updated CRL directly to OPNsense and restart FreeRADIUS daemon
         if radius:
             try:
-                crl_pem = step.get_crl(as_pem=True)
+                crl_pem = ca.get_crl(as_pem=True)
                 if crl_pem:
                     radius.push_crl(crl_pem)
                     radius.restart_service()
@@ -828,6 +832,38 @@ def create_app(
     return app
 
 
+def create_ca_client():
+    provider = getattr(settings, "CA_PROVIDER", "infisical").lower()
+    if provider == "infisical":
+        logger.info(
+            f"Initializing Infisical PKI client (URL: {settings.INFISICAL_URL}, CA ID: {settings.INFISICAL_CA_ID})"
+        )
+        return InfisicalCaClient(
+            base_url=settings.INFISICAL_URL,
+            client_id=settings.INFISICAL_CLIENT_ID,
+            client_secret=settings.INFISICAL_CLIENT_SECRET,
+            project_id=settings.INFISICAL_PROJECT_ID,
+            ca_id=settings.INFISICAL_CA_ID,
+            domain=settings.NETWORK_DOMAIN,
+            default_ttl=settings.CERT_VALIDITY_HOURS,
+            verify_ssl=settings.INFISICAL_VERIFY_SSL,
+        )
+    else:
+        logger.info(f"Initializing step-ca client (URL: {settings.STEP_CA_URL})")
+        return StepCaClient(
+            ca_url=settings.STEP_CA_URL,
+            domain=settings.NETWORK_DOMAIN,
+            provisioner_name=settings.STEP_CA_PROVISIONER_NAME,
+            ca_config_path=settings.STEP_CA_CONFIG_PATH,
+            password_file=settings.STEP_CA_PASSWORD_FILE,
+            provisioner_key_path=settings.STEP_CA_PROVISIONER_KEY_PATH,
+            provisioner_password=settings.STEP_CA_PROVISIONER_PASSWORD,
+            root_cert_path=settings.STEP_ROOT_CERT_PATH,
+            intermediate_cert_path=settings.STEP_INTERMEDIATE_CERT_PATH,
+            verify_ssl=False,
+        )
+
+
 # Default app instance for production uvicorn execution
 def init_production_app() -> FastAPI:
     sm = StateManager(
@@ -835,23 +871,13 @@ def init_production_app() -> FastAPI:
         max_pending=settings.MAX_PENDING_REQUESTS,
     )
     db = CertificateDatabase(settings.DATABASE_PATH)
-    step_client = StepCaClient(
-        ca_url=settings.STEP_CA_URL,
-        domain=settings.NETWORK_DOMAIN,
-        provisioner_name=settings.STEP_CA_PROVISIONER_NAME,
-        ca_config_path=settings.STEP_CA_CONFIG_PATH,
-        password_file=settings.STEP_CA_PASSWORD_FILE,
-        provisioner_key_path=settings.STEP_CA_PROVISIONER_KEY_PATH,
-        provisioner_password=settings.STEP_CA_PROVISIONER_PASSWORD,
-        root_cert_path=settings.STEP_ROOT_CERT_PATH,
-        intermediate_cert_path=settings.STEP_INTERMEDIATE_CERT_PATH,
-        verify_ssl=False,
-    )
+    ca_client = create_ca_client()
     radius_client = FreeRadiusClient(
         url=settings.OPNSENSE_URL,
         api_key=settings.OPNSENSE_API_KEY,
         api_secret=settings.OPNSENSE_API_SECRET,
         verify_ssl=settings.OPNSENSE_VERIFY_SSL,
+        intermediate_ca_refid=settings.OPNSENSE_INTERMEDIATE_CA_REFID,
     )
 
     slack_handler = None
@@ -879,7 +905,7 @@ def init_production_app() -> FastAPI:
         slack_handler = SlackEnrollmentHandler(
             app=bolt_app,
             state_manager=sm,
-            step_client=step_client,
+            ca_client=ca_client,
             radius_client=radius_client,
             channel_id=settings.SLACK_CHANNEL_ID,
             database=db,
@@ -897,11 +923,15 @@ def init_production_app() -> FastAPI:
     app = create_app(
         state_manager=sm,
         slack_handler=slack_handler,
-        step_client=step_client,
+        ca_client=ca_client,
         radius_client=radius_client,
         database=db,
         broadcaster=broadcaster,
     )
+    if socket_mode_handler:
+        app.state.socket_mode_handler = socket_mode_handler
+
+    return app
     if socket_mode_handler:
         app.state.socket_mode_handler = socket_mode_handler
 

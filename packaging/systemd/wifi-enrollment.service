@@ -1,9 +1,8 @@
 [Unit]
 Description=Spoutin Wi-Fi EAP-TLS Enrollment Service
 Documentation=https://github.com/spoutin/spoutin-pki
-After=network.target network-online.target step-ca.service
-Wants=network-online.target step-ca.service
-Before=caddy.service
+After=network.target network-online.target
+Wants=network-online.target
 
 ConditionPathExists=/opt/wifi-enrollment
 ConditionPathExists=/etc/wifi-enrollment/.env
@@ -22,7 +21,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/wifi-enrollment /etc/step-ca
+ReadWritePaths=/opt/wifi-enrollment
 StandardOutput=journal
 StandardError=journal
 

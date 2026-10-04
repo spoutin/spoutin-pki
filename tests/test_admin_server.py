@@ -234,6 +234,30 @@ def test_admin_revocation_default_scope(admin_test_app):
     assert cert["revocation_scope"] == "USER_AND_CERT"
 
 
+def test_admin_revocation_with_infisical_cert_id(admin_test_app):
+    client, _, db, ca_client, radius_client, _ = admin_test_app
+
+    db.insert_certificate(
+        serial_number="66666",
+        device_name="device-infisical",
+        platform="android",
+        vlan_id=8,
+        vlan_label="8 - SemiPrivate",
+        client_ip="10.0.0.5",
+        cert_pem="DUMMY_PEM",
+        issued_at=1000,
+        expires_at=2000,
+        certificate_id="inf-uuid-12345",
+    )
+
+    resp = client.post(
+        "/api/admin/certificates/66666/revoke",
+        json={"reason": "keyCompromise", "scope": "CERT_ONLY"},
+    )
+    assert resp.status_code == 200
+    ca_client.revoke_certificate.assert_called_with("inf-uuid-12345", reason="keyCompromise")
+
+
 def test_admin_download_certificate(admin_test_app):
     client, sm, db, step_client, radius_client, _ = admin_test_app
 

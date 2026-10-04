@@ -47,7 +47,8 @@ class CertificateDatabase:
                     revocation_scope TEXT,
                     opnsense_uuid TEXT,
                     request_id TEXT,
-                    pin TEXT
+                    pin TEXT,
+                    certificate_id TEXT
                 );
                 """
             )
@@ -58,6 +59,8 @@ class CertificateDatabase:
                 cur.execute("ALTER TABLE certificates ADD COLUMN request_id TEXT;")
             if "pin" not in cols:
                 cur.execute("ALTER TABLE certificates ADD COLUMN pin TEXT;")
+            if "certificate_id" not in cols:
+                cur.execute("ALTER TABLE certificates ADD COLUMN certificate_id TEXT;")
 
             cur.execute("CREATE INDEX IF NOT EXISTS idx_device_name ON certificates(device_name);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_status ON certificates(status);")
@@ -79,6 +82,7 @@ class CertificateDatabase:
         opnsense_uuid: Optional[str] = None,
         request_id: Optional[str] = None,
         pin: Optional[str] = None,
+        certificate_id: Optional[str] = None,
     ) -> None:
         with self._lock:
             cur = self._conn.cursor()
@@ -86,8 +90,8 @@ class CertificateDatabase:
                 """
                 INSERT INTO certificates (
                     serial_number, device_name, platform, vlan_id, vlan_label,
-                    client_ip, cert_pem, issued_at, expires_at, status, opnsense_uuid, request_id, pin
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
+                    client_ip, cert_pem, issued_at, expires_at, status, opnsense_uuid, request_id, pin, certificate_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
                 ON CONFLICT(serial_number) DO UPDATE SET
                     device_name=excluded.device_name,
                     platform=excluded.platform,
@@ -100,7 +104,8 @@ class CertificateDatabase:
                     status='ACTIVE',
                     opnsense_uuid=excluded.opnsense_uuid,
                     request_id=COALESCE(excluded.request_id, certificates.request_id),
-                    pin=COALESCE(excluded.pin, certificates.pin);
+                    pin=COALESCE(excluded.pin, certificates.pin),
+                    certificate_id=COALESCE(excluded.certificate_id, certificates.certificate_id);
                 """,
                 (
                     serial_number,
@@ -115,6 +120,7 @@ class CertificateDatabase:
                     opnsense_uuid,
                     request_id,
                     pin,
+                    certificate_id,
                 ),
             )
             self._conn.commit()

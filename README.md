@@ -4,10 +4,10 @@ Monorepo for Spoutin Home Network PKI automation and certificate management.
 
 ## Services & Components
 
-* **`services/wifi-enrollment`**: Automated EAP-TLS client enrollment web portal backed by Slack Socket Mode approvals, `step-ca` REST API, and OPNsense FreeRADIUS.
-* **`infra/step-ca`**: Smallstep CA configurations, templates (`eap-client.json`), and systemd units.
-* **`infra/caddy`**: Reverse proxy configuration with Cloudflare DNS-01 Let's Encrypt TLS.
-* **`infra/systemd`**: Service definitions for deployment on the `step-ca` LXC container.
+* **`services/wifi-enrollment`**: Automated EAP-TLS client enrollment web portal backed by Slack Socket Mode approvals, Infisical / `step-ca` PKI REST APIs, and OPNsense FreeRADIUS.
+* **`infra/step-ca`**: Smallstep CA configurations, templates (`eap-client.json`), and systemd units (legacy/optional).
+* **`infra/caddy`**: Reverse proxy configuration example with Cloudflare DNS-01 Let's Encrypt TLS.
+* **`scripts/sync-freeradius-crl.sh`**: Zero-touch FreeRADIUS CRL synchronization script for OPNsense.
 
 ## Quickstart
 
@@ -24,14 +24,14 @@ just dev
 
 ## Installation & Configuration
 
-This section details how to install and configure the **`wifi-enrollment`** service and its dependencies on your `step-ca` Proxmox LXC container.
+This section details how to install and configure the **`wifi-enrollment`** service on a dedicated Ubuntu/Debian LXC container.
 
 ### 1. Prerequisites
 
-* **`step-ca`** running and configured with your Intermediate CA and 6-year claims (`52560h`).
+* **Infisical** (e.g. self-hosted `https://secrets.int.spoutin.org` or Cloud) with an active Certificate Authority (CA) and Universal Auth Machine Identity. *(Or legacy `step-ca`).*
 * **OPNsense** with the `os-freeradius` plugin installed and EAP-TLS configured.
 * **Slack Workspace** with administrative permissions to create a Slack App.
-* **Cloudflare API Token** with DNS Zone edit permissions for Let's Encrypt DNS-01 challenges.
+* **Reverse Proxy (Optional)**: Caddy, Nginx, or HAProxy pointing to `http://127.0.0.1:8000`.
 
 ---
 
@@ -77,57 +77,68 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 4. A `.key` file downloads containing:
    * Key (`OPNSENSE_API_KEY`)
    * Secret (`OPNSENSE_API_SECRET`)
-5. Ensure the user has permissions for **Services: FreeRADIUS** (`api/freeradius/*`).
+5. Ensure the user has permissions for **Services: FreeRADIUS** (`api/freeradius/*`) and **System: Trust** (`api/trust/*`).
 
 ---
 
 ### 4. Installation via Debian Package (`.deb`) — Recommended
 
-The GitHub Actions workflow builds a unified `.deb` package containing the custom Caddy binary (with Cloudflare DNS), `wifi-enrollment` service, systemd units, and boilerplate configs.
+The GitHub Actions workflow builds a clean, lightweight `.deb` package containing the `wifi-enrollment` service and systemd daemonization. Reverse proxies (like Caddy) are kept external and managed separately.
 
 1. **Download the latest `.deb` package** from your repository's [GitHub Releases](https://github.com/spoutin/spoutin-pki/releases).
-2. **Install on the `step-ca` LXC:**
+2. **Install on your LXC container:**
    ```bash
-    dpkg -i wifi-enrollment_0.2.21_amd64.deb
+   apt install ./wifi-enrollment_0.2.22_amd64.deb
    ```
-   *The package automatically sets up the `caddy` user, installs `uv`, creates `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and configures systemd.*
+   *The package installs `uv`, copies `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and enables systemd.*
 
 3. **Configure Environment (`/etc/wifi-enrollment/.env`):**
    ```bash
    nano /etc/wifi-enrollment/.env
    ```
-   Fill in your `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, Slack tokens, and admin OAuth settings:
+   Fill in your Infisical, Slack, and OPNsense settings:
    ```ini
+   CA_PROVIDER=infisical
+
+   # Infisical Machine Identity
+   INFISICAL_URL=https://secrets.int.spoutin.org
+   INFISICAL_CLIENT_ID=your_client_id
+   INFISICAL_CLIENT_SECRET=your_client_secret
+   INFISICAL_PROJECT_ID=your_project_id
+   INFISICAL_CA_ID=your_ca_id
+
    # Slack OAuth & Admin Web Portal
+   SLACK_BOT_TOKEN=xoxb-...
+   SLACK_APP_TOKEN=xapp-...
+   SLACK_CHANNEL_ID=C0XXXXXXXXX
    SLACK_CLIENT_ID=your_slack_client_id
    SLACK_CLIENT_SECRET=your_slack_client_secret
-   ADMIN_SLACK_EMAILS=adam@spoutin.org,admin@spoutin.org
+   ADMIN_SLACK_EMAILS=adam@spoutin.org
    SESSION_SECRET_KEY=change-this-to-any-random-string
-   DATABASE_PATH=/opt/wifi-enrollment/data/inventory.db
+
+   # OPNsense FreeRADIUS
+   OPNSENSE_URL=https://opnsense.int.spoutin.org
+   OPNSENSE_API_KEY=your_key
+   OPNSENSE_API_SECRET=your_secret
    ```
 
-4. **Configure Cloudflare API Token for Caddy:**
+4. **Start the Service:**
    ```bash
-   mkdir -p /etc/systemd/system/caddy.service.d
-   cat << 'EOF' > /etc/systemd/system/caddy.service.d/override.conf
-   [Service]
-   Environment="CLOUDFLARE_API_TOKEN=your_cloudflare_api_token_here"
-   EOF
-   systemctl daemon-reload
-   ```
-
-5. **Start and Manage Services via Unified Target:**
-   The package configures systemd dependencies so that `step-ca`, `wifi-enrollment`, and `caddy` start in their required order. You can manage the entire stack with the unified `spoutin-pki.target`:
-   ```bash
-   # Start the entire PKI stack (step-ca -> wifi-enrollment -> caddy)
-   systemctl start spoutin-pki.target
-
-   # Check status of the stack
-   systemctl status spoutin-pki.target
-
-   # Or manage individual services:
+   systemctl start wifi-enrollment
    systemctl status wifi-enrollment
-   systemctl status caddy
+   ```
+
+5. **(Optional) Configure External Caddy Reverse Proxy:**
+   If you use Caddy for SSL termination and Cloudflare DNS:
+   ```caddyfile
+   # /etc/caddy/Caddyfile
+   wifi.int.spoutin.org {
+       tls {
+           dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+           resolvers 1.1.1.1 8.8.8.8
+       }
+       reverse_proxy 127.0.0.1:8000
+   }
    ```
 
 ---

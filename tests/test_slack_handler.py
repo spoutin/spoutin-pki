@@ -1,5 +1,9 @@
+import datetime
 from unittest.mock import MagicMock
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from services.wifi_enrollment.models import DevicePlatform, EnrollmentStatus, VlanOption
 from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
@@ -147,4 +151,51 @@ def test_update_channel_error_blocks(mock_clients):
     blocks = call_args["blocks"]
     assert any("Wi-Fi Enrollment Failed" in str(b) for b in blocks)
     assert any("invalid jwk token audience claim" in str(b) for b in blocks)
-    assert any("@spoutin" in str(b) for b in blocks)
+
+
+def test_process_approval_flow_infisical():
+    app = MagicMock()
+    sm = StateManager(ttl_seconds=300)
+    infisical_client = MagicMock()
+    radius_client = MagicMock()
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "test-inf-dev")]))
+        .issuer_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "Test CA")]))
+        .public_key(key.public_key())
+        .serial_number(123456789)
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+
+    infisical_client.generate_key_and_csr.return_value = (key, b"fake-csr")
+    infisical_client.sign_csr.return_value = (cert_pem, ["fake-chain"], "inf-uuid-999", "75bcd15")
+    infisical_client.build_p12_bundle.return_value = b"fake-p12"
+    # Ensure infisical_client does NOT have generate_provisioner_token (Infisical path)
+    del infisical_client.generate_provisioner_token
+
+    handler = SlackEnrollmentHandler(
+        app=app,
+        state_manager=sm,
+        ca_client=infisical_client,
+        radius_client=radius_client,
+        channel_id="C123",
+    )
+
+    record = sm.create_request("test-inf-dev", DevicePlatform.WINDOWS, "192.168.1.100")
+    token, pin = handler.process_approval(
+        request_id=record.request_id,
+        approved_name="test-inf-dev",
+        vlan=VlanOption.LAN,
+    )
+
+    assert len(pin) == 4
+    assert token is not None
+    infisical_client.generate_key_and_csr.assert_called_once_with("test-inf-dev")
+    infisical_client.sign_csr.assert_called_once_with(b"fake-csr")
+    infisical_client.build_p12_bundle.assert_called_once()
+    radius_client.upsert_user.assert_called_once()

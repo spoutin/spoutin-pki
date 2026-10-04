@@ -241,4 +241,16 @@ def test_get_intermediate_ca_refid(mock_get):
     client = FreeRadiusClient("https://opnsense.local", "key", "secret")
     assert client.get_intermediate_ca_refid() == "inter-2"
 
+    # Test explicit override
+    explicit_client = FreeRadiusClient("https://opnsense.local", "key", "secret", intermediate_ca_refid="custom-ref")
+    assert explicit_client.get_intermediate_ca_refid() == "custom-ref"
+
+    # Test infisical auto-discovery
+    mock_resp.json.return_value = {
+        "rows": [
+            {"descr": "Infisical Issuing CA", "refid": "inf-123"},
+        ]
+    }
+    assert client.get_intermediate_ca_refid() == "inf-123"
+
 

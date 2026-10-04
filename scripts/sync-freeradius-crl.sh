@@ -20,9 +20,9 @@
 set -e
 
 CRL_URL="${CRL_URL:-https://wifi.int.spoutin.org/crl.pem}"
-ETAG_FILE="${ETAG_FILE:-/tmp/step-ca.crl.etag}"
-TEMP_FILE="${TEMP_FILE:-/tmp/step-ca.crl.incoming}"
-INSTALLED_CRL="${INSTALLED_CRL:-/usr/local/etc/raddb/certs/step-ca.crl}"
+ETAG_FILE="${ETAG_FILE:-/tmp/spoutin-wifi.crl.etag}"
+TEMP_FILE="${TEMP_FILE:-/tmp/spoutin-wifi.crl.incoming}"
+INSTALLED_CRL="${INSTALLED_CRL:-/usr/local/etc/raddb/certs/spoutin-wifi.crl}"
 CA_OPN="${CA_OPN:-/usr/local/etc/raddb/certs/ca_opn.pem}"
 CA_BASE="${CA_BASE:-/usr/local/etc/raddb/certs/ca_base.pem}"
 EAP_CONF="/usr/local/etc/raddb/mods-enabled/eap"
@@ -41,7 +41,7 @@ if [ -z "$CRL_ACTIVE" ]; then
     logger -t sync-freeradius-crl "FreeRADIUS CRL checking not detected. Initializing OPNsense Trust Store and EAP config..."
 
     # Download initial CRL to /tmp
-    INIT_CRL="/tmp/step-ca.crl.init"
+    INIT_CRL="/tmp/spoutin-wifi.crl.init"
     if ! curl -s -f "$CRL_URL" -o "$INIT_CRL"; then
         echo "Error: Failed to download initial CRL from $CRL_URL"
         logger -t sync-freeradius-crl "Failed to download initial CRL from $CRL_URL"
@@ -56,33 +56,44 @@ use OPNsense\Core\Config;
 
 $configObj = Config::getInstance()->object();
 
-// 1. Identify Root CA and Step-CA Intermediate CA in OPNsense
-$caref = '';
+// 1. Identify Root CA and Intermediate CA in OPNsense
+$caref = getenv('CA_REFID') ?: '';
 $inter_ref = '';
 $root_ref = '';
+$custom_inter_name = getenv('INTERMEDIATE_CA_NAME') ?: '';
 
 if (isset($configObj->ca)) {
     foreach ($configObj->ca as $ca) {
         $descr = (string)$ca->descr;
         $name = (string)$ca->name;
-        if (stripos($descr, 'step-ca') !== false || stripos($descr, 'intermediate') !== false || stripos($name, 'intermediate') !== false) {
-            $inter_ref = (string)$ca->refid;
+        $refid = (string)$ca->refid;
+
+        if (!empty($custom_inter_name) && (stripos($descr, $custom_inter_name) !== false || stripos($name, $custom_inter_name) !== false)) {
+            $inter_ref = $refid;
+        } elseif (stripos($descr, 'infisical') !== false || stripos($descr, 'step-ca') !== false || stripos($descr, 'intermediate') !== false || stripos($name, 'intermediate') !== false) {
+            if (empty($inter_ref)) {
+                $inter_ref = $refid;
+            }
         }
-        if (stripos($descr, 'wifi') !== false || stripos($descr, 'main') !== false || stripos($name, 'root') !== false) {
-            $root_ref = (string)$ca->refid;
+        if (stripos($descr, 'wifi') !== false || stripos($descr, 'main') !== false || stripos($name, 'root') !== false || stripos($descr, 'root') !== false) {
+            if (empty($root_ref)) {
+                $root_ref = $refid;
+            }
         }
     }
 }
 
-// CRL was signed by Step-CA Intermediate CA; prefer intermediate, fall back to root or first CA
-if (!empty($inter_ref)) {
-    $caref = $inter_ref;
-} elseif (!empty($root_ref)) {
-    $caref = $root_ref;
-} elseif (isset($configObj->ca)) {
-    foreach ($configObj->ca as $ca) {
-        $caref = (string)$ca->refid;
-        break;
+// CRL was signed by Intermediate CA; prefer intermediate, fall back to root or first CA
+if (empty($caref)) {
+    if (!empty($inter_ref)) {
+        $caref = $inter_ref;
+    } elseif (!empty($root_ref)) {
+        $caref = $root_ref;
+    } elseif (isset($configObj->ca)) {
+        foreach ($configObj->ca as $ca) {
+            $caref = (string)$ca->refid;
+            break;
+        }
     }
 }
 
@@ -104,7 +115,7 @@ if (isset($configObj->OPNsense->freeradius->eap)) {
 }
 
 // 2. Read the initial CRL PEM
-$crl_text = file_get_contents('/tmp/step-ca.crl.init');
+$crl_text = file_get_contents('/tmp/spoutin-wifi.crl.init');
 if (empty($crl_text)) {
     fwrite(STDERR, "Error: Initial CRL file is empty.\n");
     exit(1);
@@ -214,7 +225,11 @@ if [ "$HTTP_CODE" = "200" ]; then
 <?php
 require_once('config.inc');
 use OPNsense\Core\Config;
-$crl_text = @file_get_contents('/usr/local/etc/raddb/certs/step-ca.crl');
+$installed_crl_path = getenv('INSTALLED_CRL') ?: '/usr/local/etc/raddb/certs/spoutin-wifi.crl';
+$crl_text = @file_get_contents($installed_crl_path);
+if (empty($crl_text) && file_exists('/usr/local/etc/raddb/certs/step-ca.crl')) {
+    $crl_text = @file_get_contents('/usr/local/etc/raddb/certs/step-ca.crl');
+}
 if (!empty($crl_text)) {
     $configObj = Config::getInstance()->object();
     if (isset($configObj->crl)) {

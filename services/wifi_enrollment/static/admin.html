@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard • Spoutin PKI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/admin.css?v=0.2.21">
+  <link rel="stylesheet" href="/static/admin.css?v=0.2.22">
 </head>
 <body>
   <!-- Navigation Bar -->
@@ -185,14 +185,14 @@
               <input type="radio" name="revoke_scope" value="USER_AND_CERT" checked>
               <div>
                 <strong>Revoke Certificate & Delete FreeRADIUS User</strong>
-                <div class="radio-desc">Adds certificate to step-ca CRL AND removes user from FreeRADIUS authorization.</div>
+                <div class="radio-desc">Adds certificate to Certificate Authority CRL AND removes user from FreeRADIUS authorization.</div>
               </div>
             </label>
             <label class="radio-card">
               <input type="radio" name="revoke_scope" value="CERT_ONLY">
               <div>
                 <strong>Revoke Certificate Only (CRL)</strong>
-                <div class="radio-desc">Adds certificate to step-ca's Revocation List (CRL). Keeps user in FreeRADIUS.</div>
+                <div class="radio-desc">Adds certificate to Certificate Authority Revocation List (CRL). Keeps user in FreeRADIUS.</div>
               </div>
             </label>
           </div>
@@ -245,6 +245,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=0.2.21"></script>
+  <script src="/static/admin.js?v=0.2.22"></script>
 </body>
 </html>
