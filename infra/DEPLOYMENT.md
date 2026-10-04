@@ -1,6 +1,6 @@
 # Deployment Guide: wifi-enrollment on Dedicated Ubuntu LXC
 
-This guide covers deploying the **wifi-enrollment** service on a dedicated Ubuntu LXC container using **Infisical PKI** (`https://secrets.int.spoutin.org`) or legacy **step-ca**.
+This guide covers deploying the **wifi-enrollment** service on a dedicated Ubuntu LXC container using **OpenBao PKI** (or **Infisical** / legacy **step-ca**).
 
 ---
 
@@ -44,12 +44,12 @@ nano /etc/wifi-enrollment/config.env
 ```
 
 Ensure the following variables are filled in:
-* `CA_PROVIDER=infisical`
-* `INFISICAL_URL=https://secrets.int.spoutin.org`
-* `INFISICAL_CLIENT_ID=<your-machine-identity-client-id>`
-* `INFISICAL_CLIENT_SECRET=<your-machine-identity-client-secret>`
-* `INFISICAL_PROJECT_ID=<your-project-id>`
-* `INFISICAL_CA_ID=<your-ca-id>`
+* `CA_PROVIDER=openbao`
+* `OPENBAO_URL=http://<openbao-ip>:8200`
+* `OPENBAO_ROLE_ID=<your-approle-role-id>`
+* `OPENBAO_SECRET_ID=<your-approle-secret-id>`
+* `OPENBAO_PKI_MOUNT=pki`
+* `OPENBAO_ROLE=wifi-client`
 * `OPNSENSE_URL=https://opnsense.int.spoutin.org`
 * `OPNSENSE_API_KEY=<your-key>`
 * `OPNSENSE_API_SECRET=<your-secret>`

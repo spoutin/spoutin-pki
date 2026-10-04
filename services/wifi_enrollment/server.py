@@ -38,6 +38,7 @@ from services.wifi_enrollment.models import (
     sanitize_device_name,
 )
 from services.wifi_enrollment.infisical_client import InfisicalCaClient
+from services.wifi_enrollment.openbao_client import OpenBaoCaClient
 from services.wifi_enrollment.radius_client import FreeRadiusClient
 from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
 from services.wifi_enrollment.state_manager import StateManager
@@ -833,8 +834,23 @@ def create_app(
 
 
 def create_ca_client():
-    provider = getattr(settings, "CA_PROVIDER", "infisical").lower()
-    if provider == "infisical":
+    provider = getattr(settings, "CA_PROVIDER", "openbao").lower()
+    if provider == "openbao":
+        logger.info(
+            f"Initializing OpenBao PKI client (URL: {settings.OPENBAO_URL}, Mount: {settings.OPENBAO_PKI_MOUNT}, Role: {settings.OPENBAO_ROLE})"
+        )
+        return OpenBaoCaClient(
+            base_url=settings.OPENBAO_URL,
+            role_id=settings.OPENBAO_ROLE_ID,
+            secret_id=settings.OPENBAO_SECRET_ID,
+            token=settings.OPENBAO_TOKEN,
+            pki_mount=settings.OPENBAO_PKI_MOUNT,
+            role_name=settings.OPENBAO_ROLE,
+            domain=settings.NETWORK_DOMAIN,
+            default_ttl=settings.CERT_VALIDITY_HOURS,
+            verify_ssl=settings.OPENBAO_VERIFY_SSL,
+        )
+    elif provider == "infisical":
         logger.info(
             f"Initializing Infisical PKI client (URL: {settings.INFISICAL_URL}, CA ID: {settings.INFISICAL_CA_ID})"
         )

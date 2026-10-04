@@ -70,7 +70,7 @@ if (isset($configObj->ca)) {
 
         if (!empty($custom_inter_name) && (stripos($descr, $custom_inter_name) !== false || stripos($name, $custom_inter_name) !== false)) {
             $inter_ref = $refid;
-        } elseif (stripos($descr, 'infisical') !== false || stripos($descr, 'step-ca') !== false || stripos($descr, 'intermediate') !== false || stripos($name, 'intermediate') !== false) {
+        } elseif (stripos($descr, 'openbao') !== false || stripos($descr, 'vault') !== false || stripos($descr, 'infisical') !== false || stripos($descr, 'step-ca') !== false || stripos($descr, 'intermediate') !== false || stripos($name, 'intermediate') !== false) {
             if (empty($inter_ref)) {
                 $inter_ref = $refid;
             }

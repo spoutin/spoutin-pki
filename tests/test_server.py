@@ -189,3 +189,16 @@ def test_crl_endpoint_with_infisical():
     etag = resp.headers["ETag"]
     resp304 = client.get("/crl.pem", headers={"If-None-Match": etag})
     assert resp304.status_code == 304
+
+
+def test_crl_endpoint_with_openbao():
+    mock_bao = MagicMock()
+    mock_bao.get_crl.return_value = b"-----BEGIN X509 CRL-----\nopenbao-crl\n-----END X509 CRL-----"
+
+    app = create_app(ca_client=mock_bao)
+    client = TestClient(app)
+
+    resp = client.get("/crl.pem")
+    assert resp.status_code == 200
+    assert b"openbao-crl" in resp.content
+    mock_bao.get_crl.assert_called_once_with(as_pem=True)

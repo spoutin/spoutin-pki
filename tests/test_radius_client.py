@@ -253,4 +253,12 @@ def test_get_intermediate_ca_refid(mock_get):
     }
     assert client.get_intermediate_ca_refid() == "inf-123"
 
+    # Test openbao auto-discovery
+    mock_resp.json.return_value = {
+        "rows": [
+            {"descr": "OpenBao Wi-Fi Intermediate CA", "refid": "bao-456"},
+        ]
+    }
+    assert client.get_intermediate_ca_refid() == "bao-456"
+
 

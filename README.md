@@ -4,7 +4,7 @@ Monorepo for Spoutin Home Network PKI automation and certificate management.
 
 ## Services & Components
 
-* **`services/wifi-enrollment`**: Automated EAP-TLS client enrollment web portal backed by Slack Socket Mode approvals, Infisical / `step-ca` PKI REST APIs, and OPNsense FreeRADIUS.
+* **`services/wifi-enrollment`**: Automated EAP-TLS client enrollment web portal backed by Slack Socket Mode approvals, OpenBao / Infisical / `step-ca` PKI REST APIs, and OPNsense FreeRADIUS.
 * **`infra/step-ca`**: Smallstep CA configurations, templates (`eap-client.json`), and systemd units (legacy/optional).
 * **`infra/caddy`**: Reverse proxy configuration example with Cloudflare DNS-01 Let's Encrypt TLS.
 * **`scripts/sync-freeradius-crl.sh`**: Zero-touch FreeRADIUS CRL synchronization script for OPNsense.
@@ -28,7 +28,7 @@ This section details how to install and configure the **`wifi-enrollment`** serv
 
 ### 1. Prerequisites
 
-* **Infisical** (e.g. self-hosted `https://secrets.int.spoutin.org` or Cloud) with an active Certificate Authority (CA) and Universal Auth Machine Identity. *(Or legacy `step-ca`).*
+* **OpenBao / Vault** (e.g. self-hosted on Proxmox LXC) with the PKI engine enabled and an AppRole service account. *(Or Infisical / legacy `step-ca`).*
 * **OPNsense** with the `os-freeradius` plugin installed and EAP-TLS configured.
 * **Slack Workspace** with administrative permissions to create a Slack App.
 * **Reverse Proxy (Optional)**: Caddy, Nginx, or HAProxy pointing to `http://127.0.0.1:8000`.
@@ -96,16 +96,17 @@ The GitHub Actions workflow builds a clean, lightweight `.deb` package containin
    ```bash
    nano /etc/wifi-enrollment/config.env
    ```
-   Fill in your Infisical, Slack, and OPNsense settings:
+   Fill in your OpenBao (or Infisical), Slack, and OPNsense settings:
    ```ini
-   CA_PROVIDER=infisical
+   CA_PROVIDER=openbao
 
-   # Infisical Machine Identity
-   INFISICAL_URL=https://secrets.int.spoutin.org
-   INFISICAL_CLIENT_ID=your_client_id
-   INFISICAL_CLIENT_SECRET=your_client_secret
-   INFISICAL_PROJECT_ID=your_project_id
-   INFISICAL_CA_ID=your_ca_id
+   # OpenBao AppRole Service Account
+   OPENBAO_URL=http://<openbao-ip>:8200
+   OPENBAO_ROLE_ID=your_role_id
+   OPENBAO_SECRET_ID=your_secret_id
+   OPENBAO_PKI_MOUNT=pki
+   OPENBAO_ROLE=wifi-client
+   OPENBAO_VERIFY_SSL=true
 
    # Slack OAuth & Admin Web Portal
    SLACK_BOT_TOKEN=xoxb-...

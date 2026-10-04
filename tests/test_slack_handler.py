@@ -199,3 +199,50 @@ def test_process_approval_flow_infisical():
     infisical_client.sign_csr.assert_called_once_with(b"fake-csr")
     infisical_client.build_p12_bundle.assert_called_once()
     radius_client.upsert_user.assert_called_once()
+
+
+def test_process_approval_flow_openbao():
+    app = MagicMock()
+    sm = StateManager(ttl_seconds=300)
+    openbao_client = MagicMock()
+    radius_client = MagicMock()
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "test-bao-dev")]))
+        .issuer_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "OpenBao CA")]))
+        .public_key(key.public_key())
+        .serial_number(987654321)
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+
+    openbao_client.generate_key_and_csr.return_value = (key, b"fake-csr")
+    openbao_client.sign_csr.return_value = (cert_pem, ["fake-chain"], None, "3ade68b1")
+    openbao_client.build_p12_bundle.return_value = b"fake-p12"
+    del openbao_client.generate_provisioner_token
+
+    handler = SlackEnrollmentHandler(
+        app=app,
+        state_manager=sm,
+        ca_client=openbao_client,
+        radius_client=radius_client,
+        channel_id="C123",
+    )
+
+    record = sm.create_request("test-bao-dev", DevicePlatform.MACOS, "192.168.1.101")
+    token, pin = handler.process_approval(
+        request_id=record.request_id,
+        approved_name="test-bao-dev",
+        vlan=VlanOption.SEMI_PRIVATE,
+    )
+
+    assert len(pin) == 4
+    assert token is not None
+    openbao_client.generate_key_and_csr.assert_called_once_with("test-bao-dev")
+    openbao_client.sign_csr.assert_called_once_with(b"fake-csr")
+    openbao_client.build_p12_bundle.assert_called_once()
+    radius_client.upsert_user.assert_called_once()

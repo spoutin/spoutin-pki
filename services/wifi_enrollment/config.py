@@ -34,8 +34,17 @@ class Settings(BaseSettings):
     REQUEST_TTL_SECONDS: int = 900       # 15 minutes
     MAX_PENDING_REQUESTS: int = 10
 
-    # CA Provider ("infisical" or "step-ca")
-    CA_PROVIDER: str = "infisical"
+    # CA Provider ("openbao", "infisical", or "step-ca")
+    CA_PROVIDER: str = "openbao"
+
+    # OpenBao / Vault PKI API (AppRole or static token)
+    OPENBAO_URL: str = "http://127.0.0.1:8200"
+    OPENBAO_ROLE_ID: str = ""
+    OPENBAO_SECRET_ID: str = ""
+    OPENBAO_TOKEN: str = ""
+    OPENBAO_PKI_MOUNT: str = "pki"
+    OPENBAO_ROLE: str = "wifi-client"
+    OPENBAO_VERIFY_SSL: bool = True
 
     # Infisical PKI API (Self-Hosted or Cloud)
     INFISICAL_URL: str = "https://secrets.int.spoutin.org"

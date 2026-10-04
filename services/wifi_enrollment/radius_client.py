@@ -261,7 +261,7 @@ class FreeRadiusClient:
             for row in data.get("rows", []):
                 descr = (row.get("descr") or "").lower()
                 name = (row.get("name") or "").lower()
-                if any(k in descr or k in name for k in ("infisical", "intermediate", "step-ca", "spoutin")):
+                if any(k in descr or k in name for k in ("openbao", "vault", "infisical", "intermediate", "step-ca", "spoutin")):
                     return row.get("refid")
         except Exception as e:
             logger.warning("Failed to auto-discover intermediate CA refid: %s", e)
