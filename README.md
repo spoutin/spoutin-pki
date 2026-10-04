@@ -133,12 +133,27 @@ The GitHub Actions workflow builds a clean, lightweight `.deb` package containin
    If you use Caddy for SSL termination and Cloudflare DNS:
    ```caddyfile
    # /etc/caddy/Caddyfile
-   wifi.int.spoutin.org {
+   (cloudflare_tls) {
        tls {
            dns cloudflare {env.CLOUDFLARE_API_TOKEN}
            resolvers 1.1.1.1 8.8.8.8
        }
+   }
+
+   # Wi-Fi Enrollment Portal
+   wifi.int.spoutin.org {
+       import cloudflare_tls
        reverse_proxy 127.0.0.1:8000
+   }
+
+   # OpenBao Secrets & PKI
+   secrets.int.spoutin.org {
+       import cloudflare_tls
+       reverse_proxy https://127.0.0.1:8200 {
+           transport http {
+               tls_insecure_skip_verify
+           }
+       }
    }
    ```
 

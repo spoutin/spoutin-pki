@@ -1,15 +1,15 @@
 # /etc/caddy/Caddyfile
-# Reverse proxy for Spoutin Wi-Fi Enrollment Portal
+# Reverse proxy for Spoutin Home Network Services
 # Automatic HTTPS via Let's Encrypt using Cloudflare DNS-01 challenges
 
-wifi.int.spoutin.org {
-    # Automatic TLS using Cloudflare DNS provider
+(cloudflare_tls) {
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
         resolvers 1.1.1.1 8.8.8.8
     }
+}
 
-    # Security headers
+(security_headers) {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
@@ -17,8 +17,13 @@ wifi.int.spoutin.org {
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
     }
+}
 
-    # Proxy to the Python FastAPI wifi-enrollment service
+# 1. Spoutin Wi-Fi Enrollment Portal
+wifi.int.spoutin.org {
+    import cloudflare_tls
+    import security_headers
+
     reverse_proxy 127.0.0.1:8000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
@@ -28,6 +33,27 @@ wifi.int.spoutin.org {
 
     log {
         output file /var/log/caddy/wifi-enrollment.log
+        format json
+    }
+}
+
+# 2. OpenBao Secrets Management & PKI Portal
+secrets.int.spoutin.org {
+    import cloudflare_tls
+    import security_headers
+
+    reverse_proxy https://127.0.0.1:8200 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+
+    log {
+        output file /var/log/caddy/openbao.log
         format json
     }
 }

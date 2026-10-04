@@ -289,13 +289,15 @@ WantedBy=multi-user.target
 ### 5. Caddyfile Configuration (`/etc/caddy/Caddyfile`)
 
 ```caddyfile
-wifi.int.spoutin.org {
+# Reusable TLS and Security Header Snippets
+(cloudflare_tls) {
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
         resolvers 1.1.1.1 8.8.8.8
     }
+}
 
-    # Security headers
+(security_headers) {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
@@ -303,9 +305,45 @@ wifi.int.spoutin.org {
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
     }
+}
 
-    # Reverse proxy to local Wi-Fi enrollment service
-    reverse_proxy 127.0.0.1:8000
+# 1. Wi-Fi Enrollment Portal
+wifi.int.spoutin.org {
+    import cloudflare_tls
+    import security_headers
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    log {
+        output file /var/log/caddy/wifi-enrollment.log
+        format json
+    }
+}
+
+# 2. OpenBao Secrets Management & PKI (Proxied to local HTTPS port with trusted Let's Encrypt cert)
+secrets.int.spoutin.org {
+    import cloudflare_tls
+    import security_headers
+
+    reverse_proxy https://127.0.0.1:8200 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+
+    log {
+        output file /var/log/caddy/openbao.log
+        format json
+    }
 }
 ```
 
