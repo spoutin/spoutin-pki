@@ -1,9 +1,22 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _resolve_env_files() -> tuple[str, ...]:
+    custom = os.getenv("CONFIG_PATH", "").strip()
+    candidates = [
+        ".env",
+        "config.env",
+        "/etc/wifi-enrollment/config.env",
+    ]
+    if custom:
+        candidates.append(custom)
+    return tuple(candidates)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_resolve_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

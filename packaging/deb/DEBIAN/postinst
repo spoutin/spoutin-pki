@@ -4,15 +4,29 @@ set -e
 # Directory setup and permissions
 mkdir -p /etc/wifi-enrollment /opt/wifi-enrollment/data
 
-# Set up .env configuration
-if [ ! -f /etc/wifi-enrollment/.env ]; then
-    echo "Creating default /etc/wifi-enrollment/.env configuration..."
-    cp /opt/wifi-enrollment/.env.example /etc/wifi-enrollment/.env
-    chmod 600 /etc/wifi-enrollment/.env
+# Set up config.env configuration
+if [ ! -f /etc/wifi-enrollment/config.env ]; then
+    if [ -f /etc/wifi-enrollment/.env ]; then
+        echo "Migrating existing /etc/wifi-enrollment/.env to /etc/wifi-enrollment/config.env..."
+        cp /etc/wifi-enrollment/.env /etc/wifi-enrollment/config.env
+        chmod 600 /etc/wifi-enrollment/config.env
+    else
+        echo "Creating default /etc/wifi-enrollment/config.env configuration..."
+        if [ -f /opt/wifi-enrollment/config.env.example ]; then
+            cp /opt/wifi-enrollment/config.env.example /etc/wifi-enrollment/config.env
+        else
+            cp /opt/wifi-enrollment/.env.example /etc/wifi-enrollment/config.env
+        fi
+        chmod 600 /etc/wifi-enrollment/config.env
+    fi
 fi
 
-# Link .env to service directory
-ln -sf /etc/wifi-enrollment/.env /opt/wifi-enrollment/.env
+# Link config.env and .env to service directory
+ln -sf /etc/wifi-enrollment/config.env /opt/wifi-enrollment/config.env
+ln -sf /etc/wifi-enrollment/config.env /opt/wifi-enrollment/.env
+if [ ! -f /etc/wifi-enrollment/.env ]; then
+    ln -sf /etc/wifi-enrollment/config.env /etc/wifi-enrollment/.env
+fi
 
 # Check and auto-configure step-ca ca.json and certificate templates for CRL support
 STEP_CA_JSON="/etc/step-ca/config/ca.json"
@@ -178,7 +192,7 @@ if command -v systemctl >/dev/null 2>&1; then
     echo "wifi-enrollment installed successfully."
     echo ""
     echo "Next steps:"
-    echo "  1. Edit /etc/wifi-enrollment/.env with your Infisical, Slack & OPNsense credentials."
+    echo "  1. Edit /etc/wifi-enrollment/config.env with your Infisical, Slack & OPNsense credentials."
     echo "  2. Start the enrollment service:"
     echo "       systemctl start wifi-enrollment"
     echo "  3. (Optional) Point your reverse proxy (Caddy, Nginx, or HAProxy) to http://127.0.0.1:8000"

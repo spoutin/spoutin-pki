@@ -34,13 +34,13 @@ uv sync
 
 ## 3. Configure Environment Variables
 
-Create `/etc/wifi-enrollment/.env`:
+Create `/etc/wifi-enrollment/config.env`:
 
 ```bash
 mkdir -p /etc/wifi-enrollment
-cp /opt/spoutin-pki/.env.example /etc/wifi-enrollment/.env
-chmod 600 /etc/wifi-enrollment/.env
-nano /etc/wifi-enrollment/.env
+cp /opt/spoutin-pki/config.env.example /etc/wifi-enrollment/config.env
+chmod 600 /etc/wifi-enrollment/config.env
+nano /etc/wifi-enrollment/config.env
 ```
 
 Ensure the following variables are filled in:

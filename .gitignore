@@ -33,6 +33,7 @@ htmlcov/
 
 # Secrets & Environment
 .env
+config.env
 data/
 *.db
 *.pem

@@ -92,9 +92,9 @@ The GitHub Actions workflow builds a clean, lightweight `.deb` package containin
    ```
    *The package installs `uv`, copies `/opt/wifi-enrollment`, builds the virtualenv, creates `/opt/wifi-enrollment/data` for the SQLite certificate inventory, and enables systemd.*
 
-3. **Configure Environment (`/etc/wifi-enrollment/.env`):**
+3. **Configure Environment (`/etc/wifi-enrollment/config.env`):**
    ```bash
-   nano /etc/wifi-enrollment/.env
+   nano /etc/wifi-enrollment/config.env
    ```
    Fill in your Infisical, Slack, and OPNsense settings:
    ```ini
@@ -159,15 +159,15 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin"
 # 3. Install Python dependencies
 uv sync
 
-# 4. Configure .env file
+# 4. Configure config.env file
 mkdir -p /etc/wifi-enrollment
-cp .env.example /etc/wifi-enrollment/.env
-chmod 600 /etc/wifi-enrollment/.env
-ln -sf /etc/wifi-enrollment/.env .env
-nano /etc/wifi-enrollment/.env
+cp config.env.example /etc/wifi-enrollment/config.env
+chmod 600 /etc/wifi-enrollment/config.env
+ln -sf /etc/wifi-enrollment/config.env config.env
+nano /etc/wifi-enrollment/config.env
 ```
 
-Ensure credentials are configured in `/etc/wifi-enrollment/.env`:
+Ensure credentials are configured in `/etc/wifi-enrollment/config.env`:
 
 ```ini
 SERVICE_HOST=127.0.0.1

@@ -57,3 +57,11 @@ def test_invalid_device_names():
     # Invalid special chars that reduce to empty
     with pytest.raises(ValidationError):
         EnrollmentRequest(device_name="$$$", platform=DevicePlatform.MACOS)
+
+
+def test_resolve_env_files():
+    from services.wifi_enrollment.config import _resolve_env_files
+    files = _resolve_env_files()
+    assert ".env" in files
+    assert "config.env" in files
+    assert "/etc/wifi-enrollment/config.env" in files
