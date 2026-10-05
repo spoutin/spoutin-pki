@@ -2,6 +2,7 @@ import os
 import sqlite3
 import threading
 import time
+import uuid
 from typing import Any, Optional
 
 
@@ -66,6 +67,46 @@ class CertificateDatabase:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_status ON certificates(status);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_vlan_id ON certificates(vlan_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_request_id ON certificates(request_id);")
+
+            # SSH Management Tables
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ssh_requests (
+                    request_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    device_name TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    principals TEXT NOT NULL,
+                    requested_ttl TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    created_at INTEGER NOT NULL,
+                    reviewed_at INTEGER,
+                    reviewed_by TEXT
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ssh_certificates (
+                    serial_number TEXT PRIMARY KEY,
+                    key_id TEXT NOT NULL,
+                    principals TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    key_fingerprint TEXT NOT NULL,
+                    certificate TEXT NOT NULL,
+                    valid_from INTEGER NOT NULL,
+                    valid_to INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    created_at INTEGER NOT NULL,
+                    revoked_at INTEGER
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_requests_status ON ssh_requests(status);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_key_id ON ssh_certificates(key_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_status ON ssh_certificates(status);")
             self._conn.commit()
 
     def insert_certificate(
@@ -295,3 +336,132 @@ class CertificateDatabase:
                 "revoked": revoked,
                 "by_vlan": by_vlan,
             }
+
+    # ==================== SSH Request & Certificate Operations ====================
+
+    def create_ssh_request(
+        self,
+        name: str,
+        username: str,
+        device_name: str,
+        public_key: str,
+        key_fingerprint: str,
+        principals: list[str] | str,
+        ttl: str = "70080h",
+        request_id: Optional[str] = None,
+    ) -> str:
+        req_id = request_id or f"ssh-{uuid.uuid4().hex[:12]}"
+        now = int(time.time())
+        principals_str = ",".join(principals) if isinstance(principals, list) else principals
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO ssh_requests (
+                    request_id, name, username, device_name, public_key,
+                    key_fingerprint, principals, requested_ttl, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                """,
+                (req_id, name, username, device_name, public_key, key_fingerprint, principals_str, ttl, now),
+            )
+            self._conn.commit()
+            return req_id
+
+    def get_ssh_request(self, request_id: str) -> Optional[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM ssh_requests WHERE request_id = ?", (request_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def update_ssh_request_status(
+        self,
+        request_id: str,
+        status: str,
+        reviewed_by: Optional[str] = None,
+    ) -> bool:
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE ssh_requests
+                SET status = ?, reviewed_at = ?, reviewed_by = ?
+                WHERE request_id = ?
+                """,
+                (status, now, reviewed_by, request_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def list_ssh_requests(self, status: Optional[str] = None) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.cursor()
+            if status:
+                cur.execute("SELECT * FROM ssh_requests WHERE status = ? ORDER BY created_at DESC", (status,))
+            else:
+                cur.execute("SELECT * FROM ssh_requests ORDER BY created_at DESC")
+            return [dict(r) for r in cur.fetchall()]
+
+    def save_ssh_certificate(
+        self,
+        serial_number: str,
+        key_id: str,
+        principals: list[str] | str,
+        public_key: str,
+        key_fingerprint: str,
+        certificate: str,
+        valid_from: int,
+        valid_to: int,
+    ) -> None:
+        now = int(time.time())
+        principals_str = ",".join(principals) if isinstance(principals, list) else principals
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO ssh_certificates (
+                    serial_number, key_id, principals, public_key,
+                    key_fingerprint, certificate, valid_from, valid_to,
+                    status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (
+                    serial_number,
+                    key_id,
+                    principals_str,
+                    public_key,
+                    key_fingerprint,
+                    certificate,
+                    valid_from,
+                    valid_to,
+                    now,
+                ),
+            )
+            self._conn.commit()
+
+    def list_ssh_certificates(self, status: Optional[str] = None) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.cursor()
+            if status:
+                cur.execute("SELECT * FROM ssh_certificates WHERE status = ? ORDER BY created_at DESC", (status,))
+            else:
+                cur.execute("SELECT * FROM ssh_certificates ORDER BY created_at DESC")
+            return [dict(r) for r in cur.fetchall()]
+
+    def revoke_ssh_certificate(self, serial_number: str) -> bool:
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE ssh_certificates
+                SET status = 'REVOKED', revoked_at = ?
+                WHERE serial_number = ?
+                """,
+                (now, serial_number),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
