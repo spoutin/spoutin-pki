@@ -284,6 +284,13 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 WantedBy=multi-user.target
 ```
 
+#### Optional Systemd Drop-In Override (`/etc/systemd/system/caddy.service.d/override.conf`)
+```ini
+[Service]
+Environment=BAO_ADDR="https://127.0.0.1:8200"
+Environment=BAO_SKIP_VERIFY="true"
+```
+
 ---
 
 ### 5. Caddyfile Configuration (`/etc/caddy/Caddyfile`)
@@ -292,7 +299,7 @@ WantedBy=multi-user.target
 # Reusable TLS and Security Header Snippets
 (cloudflare_tls) {
     tls {
-        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+        dns cloudflare "{$CLOUDFLARE_API_TOKEN}"
         resolvers 1.1.1.1 8.8.8.8
     }
 }
@@ -307,28 +314,40 @@ WantedBy=multi-user.target
     }
 }
 
-# 1. Wi-Fi Enrollment Portal
+# 1. UniFi Captive Portal
+captive-portal.int.spoutin.org {
+    import cloudflare_tls
+    import security_headers
+    encode gzip zstd
+
+    reverse_proxy 127.0.0.1:3000 {
+        header_up Host {upstream_hostport}
+    }
+}
+
+# 2. Spoutin Wi-Fi Enrollment Portal & Admin Dashboard
 wifi.int.spoutin.org {
     import cloudflare_tls
     import security_headers
 
     reverse_proxy 127.0.0.1:8000 {
+        flush_interval -1
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
-
-    log {
-        output file /var/log/caddy/wifi-enrollment.log
-        format json
-    }
 }
 
-# 2. OpenBao Secrets Management & PKI (Proxied to local HTTPS port with trusted Let's Encrypt cert)
+# 3. OpenBao Secrets Management & PKI Portal
 secrets.int.spoutin.org {
     import cloudflare_tls
-    import security_headers
+
+    # Restrict OpenBao from Guest Wi-Fi subnets
+    @untrusted {
+        client_ip 192.168.111.0/24 10.0.1.0/24
+    }
+    abort @untrusted
 
     reverse_proxy https://127.0.0.1:8200 {
         header_up Host {host}
@@ -338,11 +357,6 @@ secrets.int.spoutin.org {
         transport http {
             tls_insecure_skip_verify
         }
-    }
-
-    log {
-        output file /var/log/caddy/openbao.log
-        format json
     }
 }
 ```
