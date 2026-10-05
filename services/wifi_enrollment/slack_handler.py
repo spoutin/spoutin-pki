@@ -364,6 +364,71 @@ class SlackEnrollmentHandler:
         self.state_manager.update_slack_info(record.request_id, channel, ts)
         return channel, ts
 
+    def send_ssh_request_notification(
+        self,
+        request_id: str,
+        name: str,
+        username: str,
+        device_name: str,
+        fingerprint: str,
+        principals: list[str],
+    ) -> str:
+        """Posts interactive SSH signing request card to designated Slack channel."""
+        principals_str = ", ".join(principals)
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🔑 New SSH Key Signing Request",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Name:*\n{name}"},
+                    {"type": "mrkdwn", "text": f"*Device:*\n`{device_name}`"},
+                    {"type": "mrkdwn", "text": f"*Key ID:*\n`{username}`"},
+                    {"type": "mrkdwn", "text": f"*Principals:*\n`{principals_str}`"},
+                    {"type": "mrkdwn", "text": f"*Fingerprint:*\n`{fingerprint}`"},
+                ],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "⚡ Approve SSH",
+                            "emoji": True,
+                        },
+                        "style": "primary",
+                        "action_id": "ssh_quick_approve",
+                        "value": request_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "❌ Reject",
+                            "emoji": True,
+                        },
+                        "style": "danger",
+                        "action_id": "ssh_reject",
+                        "value": request_id,
+                    },
+                ],
+            },
+        ]
+        resp = self.app.client.chat_postMessage(
+            channel=self.channel_id,
+            text=f"New SSH Key Signing Request: {username} ({device_name})",
+            blocks=blocks,
+        )
+        return resp.get("ts", "")
+
     def _register_handlers(self) -> None:
         """Registers Bolt action listeners."""
 
@@ -514,6 +579,80 @@ class SlackEnrollmentHandler:
                 channel=body["channel"]["id"],
                 ts=body["message"]["ts"],
                 text=f"❌ *Rejected* `{record.device_name}` by @{user_name}",
+            )
+
+        @self.app.action("ssh_quick_approve")
+        def handle_ssh_quick_approve(ack, body):
+            ack()
+            request_id = body["actions"][0]["value"]
+            user_name = body.get("user", {}).get("username", "Admin")
+            logger.info(f"Received 'ssh_quick_approve' click from @{user_name} for request {request_id}")
+            if not self.database:
+                return
+            req = self.database.get_ssh_request(request_id)
+            if not req or req.get("status") != "PENDING":
+                logger.warning(f"SSH request {request_id} is no longer pending")
+                return
+
+            self._update_channel_message(
+                channel=body["channel"]["id"],
+                ts=body["message"]["ts"],
+                text=f"⏳ *Processing SSH key approval* for `{req['username']}` by @{user_name}...",
+            )
+
+            try:
+                principals = [p.strip() for p in req["principals"].split(",") if p.strip()]
+                ttl = req.get("requested_ttl") or "70080h"
+                role = "admin-user" if "root" in principals else "operator-user"
+                res = self.ca_client.sign_ssh_public_key(
+                    public_key=req["public_key"],
+                    key_id=req["username"],
+                    principals=principals,
+                    ttl=ttl,
+                    role=role,
+                )
+                serial = str(res.get("serial_number", ""))
+                cert = res.get("signed_key", "")
+                now = int(time.time())
+                valid_to = now + 8 * 365 * 86400
+                self.database.save_ssh_certificate(
+                    serial_number=serial,
+                    key_id=req["username"],
+                    principals=principals,
+                    public_key=req["public_key"],
+                    key_fingerprint=req["key_fingerprint"],
+                    certificate=cert,
+                    valid_from=now,
+                    valid_to=valid_to,
+                )
+                self.database.update_ssh_request_status(request_id, "APPROVED", reviewed_by=f"slack:@{user_name}")
+                self._update_channel_message(
+                    channel=body["channel"]["id"],
+                    ts=body["message"]["ts"],
+                    text=f"✅ *SSH Key Approved* for `{req['username']}` (`{req['device_name']}`) by @{user_name}.\n*Serial:* `{serial}` | *Principals:* `{','.join(principals)}`",
+                )
+            except Exception as e:
+                logger.error(f"Failed to sign SSH key for request {request_id}: {e}", exc_info=True)
+                self._update_channel_message(
+                    channel=body["channel"]["id"],
+                    ts=body["message"]["ts"],
+                    text=f"❌ *Failed to sign SSH key* for `{req['username']}`: {e}",
+                )
+
+        @self.app.action("ssh_reject")
+        def handle_ssh_reject(ack, body):
+            ack()
+            request_id = body["actions"][0]["value"]
+            user_name = body.get("user", {}).get("username", "Admin")
+            if not self.database:
+                return
+            req = self.database.get_ssh_request(request_id)
+            self.database.update_ssh_request_status(request_id, "REJECTED", reviewed_by=f"slack:@{user_name}")
+            username = req["username"] if req else request_id
+            self._update_channel_message(
+                channel=body["channel"]["id"],
+                ts=body["message"]["ts"],
+                text=f"❌ *SSH Key Request Rejected* for `{username}` by @{user_name}.",
             )
 
     def _update_channel_message(self, channel: str, ts: str, text: str) -> None:
