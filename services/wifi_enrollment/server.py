@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import logging
 import os
@@ -10,9 +11,9 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -102,6 +103,41 @@ class RevokeRequestBody(BaseModel):
 
 class UpdateVlanRequestBody(BaseModel):
     vlan_id: int
+
+
+class SshEnrollmentRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    username: str = Field(..., min_length=1, max_length=50)
+    device_name: str = Field(..., min_length=1, max_length=100)
+    public_key: str = Field(..., min_length=20)
+    principals: Optional[list[str]] = None
+    ttl: Optional[str] = "70080h"
+
+
+class SshQuickSignRequest(BaseModel):
+    key_id: str = Field(..., min_length=1, max_length=50)
+    public_key: str = Field(..., min_length=20)
+    principals: list[str] = Field(default_factory=lambda: ["ablack", "root", "operator"])
+    ttl: str = "70080h"
+    role: str = "admin-user"
+
+
+class SshApproveRequest(BaseModel):
+    principals: Optional[list[str]] = None
+    ttl: Optional[str] = "70080h"
+    role: Optional[str] = "admin-user"
+
+
+def calculate_ssh_fingerprint(public_key: str) -> str:
+    parts = public_key.strip().split()
+    if len(parts) >= 2:
+        try:
+            raw_bytes = base64.b64decode(parts[1])
+            fp = base64.b64encode(hashlib.sha256(raw_bytes).digest()).decode("ascii").rstrip("=")
+            return f"SHA256:{fp}"
+        except Exception:
+            pass
+    return f"SHA256:{hashlib.sha256(public_key.strip().encode()).hexdigest()[:32]}"
 
 
 REVOCATION_REASON_LABELS = {
@@ -308,6 +344,55 @@ def create_app(
         except Exception as e:
             logger.error(f"Failed to fetch CRL from CA: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Failed to retrieve CRL: {e}")
+
+    @app.get("/ssh-ca.pub", response_class=PlainTextResponse)
+    def get_ssh_ca_public_key_endpoint():
+        """Public endpoint serving the OpenSSH CA public key."""
+        client = app.state.ca_client or getattr(app.state, "step_client", None)
+        if not client or not hasattr(client, "get_ssh_ca_public_key"):
+            raise HTTPException(status_code=503, detail="OpenBao SSH CA is not configured or unavailable")
+        try:
+            ca_pub = client.get_ssh_ca_public_key()
+            return PlainTextResponse(content=ca_pub + "\n", media_type="text/plain")
+        except Exception as e:
+            logger.error(f"Failed to fetch SSH CA public key: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to retrieve SSH CA public key")
+
+    @app.post("/api/ssh/request")
+    def submit_ssh_request(body: SshEnrollmentRequest):
+        principals = body.principals or ([body.username, "root", "operator"] if body.username == "ablack" else [body.username, "operator"])
+        fp = calculate_ssh_fingerprint(body.public_key)
+        req_id = db.create_ssh_request(
+            name=body.name,
+            username=body.username,
+            device_name=body.device_name,
+            public_key=body.public_key,
+            key_fingerprint=fp,
+            principals=principals,
+            ttl=body.ttl or "70080h",
+        )
+        sh = getattr(app.state, "slack_handler", None)
+        if sh and hasattr(sh, "send_ssh_request_notification"):
+            try:
+                sh.send_ssh_request_notification(
+                    request_id=req_id,
+                    name=body.name,
+                    username=body.username,
+                    device_name=body.device_name,
+                    fingerprint=fp,
+                    principals=principals,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send Slack notification for SSH request {req_id}: {e}")
+
+        return {"request_id": req_id, "status": "PENDING"}
+
+    @app.get("/api/ssh/status/{request_id}")
+    def get_ssh_request_status(request_id: str):
+        req = db.get_ssh_request(request_id)
+        if not req:
+            raise HTTPException(status_code=404, detail="SSH request not found")
+        return req
 
     @app.post("/api/request")
     def submit_request(req: EnrollmentRequest, request: Request):
@@ -831,6 +916,116 @@ def create_app(
         rc_client: Optional[FreeRadiusClient] = app.state.radius_client
         count = sync_radius_vlans(db, rc_client, bc)
         return {"status": "synced", "updated": count}
+
+    # ================= ADMIN SSH ROUTES =================
+
+    @app.post("/api/admin/ssh/quick-sign")
+    def admin_ssh_quick_sign(body: SshQuickSignRequest, admin: dict = Depends(require_admin)):
+        client = app.state.ca_client or getattr(app.state, "step_client", None)
+        if not client or not hasattr(client, "sign_ssh_public_key"):
+            raise HTTPException(status_code=503, detail="OpenBao SSH CA is not configured")
+        fp = calculate_ssh_fingerprint(body.public_key)
+        try:
+            res = client.sign_ssh_public_key(
+                public_key=body.public_key,
+                key_id=body.key_id,
+                principals=body.principals,
+                ttl=body.ttl,
+                role=body.role,
+            )
+            serial = str(res.get("serial_number", ""))
+            cert = res.get("signed_key", "")
+            now = int(time.time())
+            valid_to = now + 8 * 365 * 86400
+            db.save_ssh_certificate(
+                serial_number=serial,
+                key_id=body.key_id,
+                principals=body.principals,
+                public_key=body.public_key,
+                key_fingerprint=fp,
+                certificate=cert,
+                valid_from=now,
+                valid_to=valid_to,
+            )
+            return {
+                "serial_number": serial,
+                "certificate": cert,
+                "key_id": body.key_id,
+                "principals": body.principals,
+                "valid_to": valid_to,
+            }
+        except Exception as e:
+            logger.error(f"Quick-sign SSH key failed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"OpenBao SSH signing error: {e}")
+
+    @app.get("/api/admin/ssh/requests")
+    def list_admin_ssh_requests(status: Optional[str] = None, admin: dict = Depends(require_admin)):
+        return db.list_ssh_requests(status=status)
+
+    @app.post("/api/admin/ssh/requests/{request_id}/approve")
+    def approve_admin_ssh_request(request_id: str, body: SshApproveRequest, admin: dict = Depends(require_admin)):
+        req = db.get_ssh_request(request_id)
+        if not req:
+            raise HTTPException(status_code=404, detail="SSH request not found")
+        client = app.state.ca_client or getattr(app.state, "step_client", None)
+        if not client or not hasattr(client, "sign_ssh_public_key"):
+            raise HTTPException(status_code=503, detail="OpenBao SSH CA is not configured")
+
+        principals = body.principals or [p.strip() for p in req["principals"].split(",") if p.strip()]
+        ttl = body.ttl or req.get("requested_ttl") or "70080h"
+        role = body.role or ("admin-user" if "root" in principals else "operator-user")
+
+        try:
+            res = client.sign_ssh_public_key(
+                public_key=req["public_key"],
+                key_id=req["username"],
+                principals=principals,
+                ttl=ttl,
+                role=role,
+            )
+            serial = str(res.get("serial_number", ""))
+            cert = res.get("signed_key", "")
+            now = int(time.time())
+            valid_to = now + 8 * 365 * 86400
+            db.save_ssh_certificate(
+                serial_number=serial,
+                key_id=req["username"],
+                principals=principals,
+                public_key=req["public_key"],
+                key_fingerprint=req["key_fingerprint"],
+                certificate=cert,
+                valid_from=now,
+                valid_to=valid_to,
+            )
+            db.update_ssh_request_status(request_id, "APPROVED", reviewed_by=admin.get("email", "admin"))
+            return {
+                "serial_number": serial,
+                "certificate": cert,
+                "key_id": req["username"],
+                "principals": principals,
+                "valid_to": valid_to,
+            }
+        except Exception as e:
+            logger.error(f"Approval of SSH request {request_id} failed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"OpenBao SSH signing error: {e}")
+
+    @app.post("/api/admin/ssh/requests/{request_id}/reject")
+    def reject_admin_ssh_request(request_id: str, admin: dict = Depends(require_admin)):
+        success = db.update_ssh_request_status(request_id, "REJECTED", reviewed_by=admin.get("email", "admin"))
+        if not success:
+            raise HTTPException(status_code=404, detail="SSH request not found")
+        return {"status": "ok", "request_id": request_id}
+
+    @app.get("/api/admin/ssh/certificates")
+    def list_admin_ssh_certificates(status: Optional[str] = None, admin: dict = Depends(require_admin)):
+        return db.list_ssh_certificates(status=status)
+
+    @app.post("/api/admin/ssh/certificates/{serial}/revoke")
+    def revoke_admin_ssh_certificate(serial: str, admin: dict = Depends(require_admin)):
+        success = db.revoke_ssh_certificate(serial)
+        if not success:
+            raise HTTPException(status_code=404, detail="SSH certificate not found")
+        return {"status": "ok", "serial_number": serial}
 
     return app
 
