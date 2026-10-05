@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from services.wifi_enrollment.models import (
+from services.pki.models import (
     DevicePlatform,
     EnrollmentRequest,
     VlanOption,
@@ -60,7 +60,7 @@ def test_invalid_device_names():
 
 
 def test_resolve_env_files():
-    from services.wifi_enrollment.config import _resolve_env_files
+    from services.pki.config import _resolve_env_files
     files = _resolve_env_files()
     assert ".env" in files
     assert "config.env" in files

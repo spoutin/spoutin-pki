@@ -19,9 +19,9 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from services.wifi_enrollment.broadcaster import EventBroadcaster
+from services.pki.broadcaster import EventBroadcaster
 
-from services.wifi_enrollment.auth import (
+from services.pki.auth import (
     create_session_token,
     exchange_slack_code,
     generate_slack_oauth_url,
@@ -29,27 +29,27 @@ from services.wifi_enrollment.auth import (
     is_authorized_admin,
     verify_session_token,
 )
-from services.wifi_enrollment.config import settings
-from services.wifi_enrollment.database import CertificateDatabase
-from services.wifi_enrollment.models import (
+from services.pki.config import settings
+from services.pki.database import CertificateDatabase
+from services.pki.models import (
     EnrollmentRequest,
     EnrollmentStatus,
     StatusResponse,
     VlanOption,
     sanitize_device_name,
 )
-from services.wifi_enrollment.infisical_client import InfisicalCaClient
-from services.wifi_enrollment.openbao_client import OpenBaoCaClient
-from services.wifi_enrollment.radius_client import FreeRadiusClient
-from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
-from services.wifi_enrollment.state_manager import StateManager
-from services.wifi_enrollment.step_client import StepCaClient
+from services.pki.infisical_client import InfisicalCaClient
+from services.pki.openbao_client import OpenBaoCaClient
+from services.pki.radius_client import FreeRadiusClient
+from services.pki.slack_handler import SlackEnrollmentHandler
+from services.pki.state_manager import StateManager
+from services.pki.step_client import StepCaClient
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("wifi_enrollment")
+logger = logging.getLogger("pki")
 
 
 class SlidingWindowRateLimiter:
@@ -247,8 +247,8 @@ def create_app(
         sync_task.cancel()
 
     app = FastAPI(
-        title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.22",
+        title="Spoutin PKI Certificate Portal & Admin Dashboard",
+        version="0.3.0",
         lifespan=lifespan,
     )
 

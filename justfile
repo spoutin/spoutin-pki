@@ -16,7 +16,7 @@ test-v:
 
 # Run the wifi-enrollment service locally for development
 dev:
-    uv run uvicorn services.wifi_enrollment.server:app --host 127.0.0.1 --port 8000 --reload
+    uv run uvicorn services.pki.server:app --host 127.0.0.1 --port 8000 --reload
 
 # Build Debian (.deb) package
 build-deb version="0.1.0" arch="amd64":

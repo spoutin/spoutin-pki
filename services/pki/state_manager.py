@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from services.wifi_enrollment.models import DevicePlatform, EnrollmentStatus, VlanOption
+from services.pki.models import DevicePlatform, EnrollmentStatus, VlanOption
 
 
 @dataclass

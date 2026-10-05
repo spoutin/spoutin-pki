@@ -5,9 +5,9 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from services.wifi_enrollment.models import DevicePlatform, EnrollmentStatus, VlanOption
-from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
-from services.wifi_enrollment.state_manager import StateManager
+from services.pki.models import DevicePlatform, EnrollmentStatus, VlanOption
+from services.pki.slack_handler import SlackEnrollmentHandler
+from services.pki.state_manager import StateManager
 
 
 @pytest.fixture

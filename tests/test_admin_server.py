@@ -2,11 +2,11 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from services.wifi_enrollment.auth import create_session_token
-from services.wifi_enrollment.database import CertificateDatabase
-from services.wifi_enrollment.models import DevicePlatform, VlanOption
-from services.wifi_enrollment.server import create_app
-from services.wifi_enrollment.state_manager import StateManager
+from services.pki.auth import create_session_token
+from services.pki.database import CertificateDatabase
+from services.pki.models import DevicePlatform, VlanOption
+from services.pki.server import create_app
+from services.pki.state_manager import StateManager
 
 
 @pytest.fixture

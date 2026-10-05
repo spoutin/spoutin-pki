@@ -1,7 +1,7 @@
 import time
 import pytest
-from services.wifi_enrollment.models import DevicePlatform, EnrollmentStatus, VlanOption
-from services.wifi_enrollment.state_manager import StateManager
+from services.pki.models import DevicePlatform, EnrollmentStatus, VlanOption
+from services.pki.state_manager import StateManager
 
 
 def test_create_and_get_request():

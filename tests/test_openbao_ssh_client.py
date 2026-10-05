@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from services.wifi_enrollment.openbao_client import OpenBaoCaClient
+from services.pki.openbao_client import OpenBaoCaClient
 
 
 @pytest.fixture

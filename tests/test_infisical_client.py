@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-from services.wifi_enrollment.infisical_client import InfisicalCaClient
+from services.pki.infisical_client import InfisicalCaClient
 
 
 def _generate_self_signed_cert(cn: str, is_ca: bool = False):

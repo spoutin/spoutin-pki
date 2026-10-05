@@ -2,7 +2,7 @@ import time
 import pytest
 from fastapi import HTTPException, Request
 
-from services.wifi_enrollment.auth import (
+from services.pki.auth import (
     create_session_token,
     is_authorized_admin,
     verify_session_token,

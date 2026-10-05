@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from slack_bolt import App
 
-from services.wifi_enrollment.models import (
+from services.pki.models import (
     HOSTNAME_REGEX,
     RESERVED_NAMES,
     DevicePlatform,
@@ -14,10 +14,10 @@ from services.wifi_enrollment.models import (
     VlanOption,
     sanitize_device_name,
 )
-from services.wifi_enrollment.database import CertificateDatabase
-from services.wifi_enrollment.radius_client import FreeRadiusClient
-from services.wifi_enrollment.state_manager import RequestRecord, StateManager
-from services.wifi_enrollment.step_client import StepCaClient
+from services.pki.database import CertificateDatabase
+from services.pki.radius_client import FreeRadiusClient
+from services.pki.state_manager import RequestRecord, StateManager
+from services.pki.step_client import StepCaClient
 
 logger = logging.getLogger(__name__)
 

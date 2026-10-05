@@ -9,7 +9,7 @@ from typing import Any, Optional
 class CertificateDatabase:
     """Thread-safe SQLite storage for Wi-Fi certificate inventory and revocation state."""
 
-    def __init__(self, db_path: str = "/opt/wifi-enrollment/data/inventory.db"):
+    def __init__(self, db_path: str = "/opt/pki/data/inventory.db"):
         self.db_path = db_path
         if self.db_path != ":memory:":
             try:

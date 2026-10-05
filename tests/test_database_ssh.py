@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 import os
-from services.wifi_enrollment.database import CertificateDatabase
+from services.pki.database import CertificateDatabase
 
 
 @pytest.fixture

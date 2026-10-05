@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-from services.wifi_enrollment.step_client import StepCaClient
+from services.pki.step_client import StepCaClient
 
 
 def _generate_self_signed_cert(cn: str, is_ca: bool = False):
@@ -114,7 +114,7 @@ def test_sign_csr_success(mock_post):
 
 def test_pure_python_token_generation():
     from cryptography.hazmat.primitives.asymmetric import ec
-    from services.wifi_enrollment.step_client import base64url_decode
+    from services.pki.step_client import base64url_decode
 
     # Create EC P-256 test key
     ec_key = ec.generate_private_key(ec.SECP256R1())
@@ -154,7 +154,7 @@ def test_decrypt_jwe_key():
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives.keywrap import aes_key_wrap
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from services.wifi_enrollment.step_client import base64url_encode, decrypt_jwe_key
+    from services.pki.step_client import base64url_encode, decrypt_jwe_key
 
     priv_key = ec.generate_private_key(ec.SECP256R1())
     d_bytes = priv_key.private_numbers().private_value.to_bytes(32, "big")
@@ -183,7 +183,7 @@ def test_decrypt_jwe_key():
 
 def test_generate_revocation_token():
     from cryptography.hazmat.primitives.asymmetric import ec
-    from services.wifi_enrollment.step_client import base64url_decode
+    from services.pki.step_client import base64url_decode
     import json
 
     ec_key = ec.generate_private_key(ec.SECP256R1())
@@ -304,7 +304,7 @@ def test_step_client_auto_heals_ca_json_and_template(tmp_path):
         provisioner_name="admin@int.spoutin.org",
     )
 
-    with patch("services.wifi_enrollment.step_client.decrypt_jwe_key") as mock_decrypt:
+    with patch("services.pki.step_client.decrypt_jwe_key") as mock_decrypt:
         mock_decrypt.return_value = MagicMock()
         client.get_provisioner_key()
 

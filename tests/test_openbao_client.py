@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-from services.wifi_enrollment.openbao_client import OpenBaoCaClient
+from services.pki.openbao_client import OpenBaoCaClient
 
 
 def _generate_self_signed_cert(cn: str, is_ca: bool = False):
@@ -157,7 +157,7 @@ def test_openbao_build_p12_bundle():
 
 
 def test_openbao_revoke_certificate():
-    from services.wifi_enrollment.openbao_client import format_serial_for_openbao
+    from services.pki.openbao_client import format_serial_for_openbao
 
     # Test serial formatting helper
     dec_serial = "510239847140576130410385357357929530021263173280"

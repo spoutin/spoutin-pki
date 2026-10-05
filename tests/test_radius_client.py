@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from services.wifi_enrollment.radius_client import FreeRadiusClient
+from services.pki.radius_client import FreeRadiusClient
 
 
 @patch("requests.Session.post")

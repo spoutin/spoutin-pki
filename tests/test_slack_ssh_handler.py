@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock
-from services.wifi_enrollment.slack_handler import SlackEnrollmentHandler
+from services.pki.slack_handler import SlackEnrollmentHandler
 
 
 @pytest.fixture

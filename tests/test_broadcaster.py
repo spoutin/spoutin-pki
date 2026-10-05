@@ -2,7 +2,7 @@ import asyncio
 import json
 import pytest
 
-from services.wifi_enrollment.broadcaster import EventBroadcaster
+from services.pki.broadcaster import EventBroadcaster
 
 
 @pytest.mark.asyncio

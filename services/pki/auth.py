@@ -10,7 +10,7 @@ from typing import Optional
 import requests
 from fastapi import HTTPException, Request
 
-from services.wifi_enrollment.config import settings
+from services.pki.config import settings
 
 logger = logging.getLogger(__name__)
 

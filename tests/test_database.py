@@ -1,6 +1,6 @@
 import time
 import pytest
-from services.wifi_enrollment.database import CertificateDatabase
+from services.pki.database import CertificateDatabase
 
 
 @pytest.fixture

@@ -7,6 +7,7 @@ def _resolve_env_files() -> tuple[str, ...]:
     candidates = [
         ".env",
         "config.env",
+        "/etc/pki/config.env",
         "/etc/wifi-enrollment/config.env",
     ]
     if custom:
@@ -37,13 +38,16 @@ class Settings(BaseSettings):
     # CA Provider ("openbao", "infisical", or "step-ca")
     CA_PROVIDER: str = "openbao"
 
-    # OpenBao / Vault PKI API (AppRole or static token)
+    # OpenBao / Vault PKI & SSH API (AppRole or static token)
     OPENBAO_URL: str = "http://127.0.0.1:8200"
     OPENBAO_ROLE_ID: str = ""
     OPENBAO_SECRET_ID: str = ""
     OPENBAO_TOKEN: str = ""
     OPENBAO_PKI_MOUNT: str = "pki"
     OPENBAO_ROLE: str = "wifi-client"
+    OPENBAO_SSH_MOUNT: str = "ssh"
+    OPENBAO_SSH_ADMIN_ROLE: str = "admin-user"
+    OPENBAO_SSH_OPERATOR_ROLE: str = "operator-user"
     OPENBAO_VERIFY_SSL: bool = True
 
     # Infisical PKI API (Self-Hosted or Cloud)
@@ -80,7 +84,7 @@ class Settings(BaseSettings):
     SLACK_CLIENT_SECRET: str = ""
     ADMIN_SLACK_EMAILS: str = "adam@spoutin.org"
     SESSION_SECRET_KEY: str = "spoutin-pki-secret-key-change-me"
-    DATABASE_PATH: str = "/opt/wifi-enrollment/data/inventory.db"
+    DATABASE_PATH: str = "/opt/pki/data/inventory.db"
 
 
 # Global singleton settings instance
