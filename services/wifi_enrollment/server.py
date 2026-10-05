@@ -212,7 +212,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin Wi-Fi EAP-TLS Enrollment Portal & Admin Dashboard",
-        version="0.2.22",
+        version="0.2.22-beta.4",
         lifespan=lifespan,
     )
 
@@ -724,6 +724,8 @@ def create_app(
         # 1. Revoke certificate in CA (updates CRL)
         target_id_or_serial = cert.get("certificate_id") or serial
         try:
+            ca.revoke_certificate(target_id_or_serial, reason=body.reason, cert_pem=cert.get("cert_pem"))
+        except TypeError:
             ca.revoke_certificate(target_id_or_serial, reason=body.reason)
         except Exception as e:
             logger.error(f"CA revocation failed: {e}", exc_info=True)

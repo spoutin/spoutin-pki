@@ -861,7 +861,7 @@ wheels = [
 
 [[package]]
 name = "spoutin-pki"
-version = "0.2.22"
+version = "0.2.22b4"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

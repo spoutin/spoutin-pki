@@ -206,6 +206,7 @@ class InfisicalCaClient:
         serial_or_id: str,
         reason: int = 0,
         ca_id: Optional[str] = None,
+        **kwargs,
     ) -> bool:
         """Revokes a certificate in Infisical by certificate ID or serial number."""
         token = self._ensure_authenticated()

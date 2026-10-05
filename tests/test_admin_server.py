@@ -155,7 +155,7 @@ def test_admin_revocation_cert_only(admin_test_app):
     assert resp.json()["status"] == "revoked"
 
     # step-ca was called
-    step_client.revoke_certificate.assert_called_once_with("55555", reason="keyCompromise")
+    step_client.revoke_certificate.assert_called_once_with("55555", reason="keyCompromise", cert_pem="DUMMY_PEM")
     # CRL was pushed and FreeRADIUS was restarted
     radius_client.push_crl.assert_called_once_with(b"DUMMY_CRL_BYTES")
     radius_client.restart_service.assert_called_once()
@@ -196,7 +196,7 @@ def test_admin_revocation_user_and_cert(admin_test_app):
     )
     assert resp.status_code == 200
 
-    step_client.revoke_certificate.assert_called_once_with("77777", reason="cessationOfOperation")
+    step_client.revoke_certificate.assert_called_once_with("77777", reason="cessationOfOperation", cert_pem="DUMMY_PEM")
     radius_client.delete_user.assert_called_once_with("device-full-revoke")
 
     cert = db.get_certificate("77777")
@@ -226,7 +226,7 @@ def test_admin_revocation_default_scope(admin_test_app):
     )
     assert resp.status_code == 200
 
-    step_client.revoke_certificate.assert_called_once_with("88888", reason="cessationOfOperation")
+    step_client.revoke_certificate.assert_called_once_with("88888", reason="cessationOfOperation", cert_pem="DUMMY_PEM")
     radius_client.delete_user.assert_called_once_with("device-default-revoke")
 
     cert = db.get_certificate("88888")
@@ -255,7 +255,7 @@ def test_admin_revocation_with_infisical_cert_id(admin_test_app):
         json={"reason": "keyCompromise", "scope": "CERT_ONLY"},
     )
     assert resp.status_code == 200
-    ca_client.revoke_certificate.assert_called_with("inf-uuid-12345", reason="keyCompromise")
+    ca_client.revoke_certificate.assert_called_with("inf-uuid-12345", reason="keyCompromise", cert_pem="DUMMY_PEM")
 
 
 def test_admin_download_certificate(admin_test_app):

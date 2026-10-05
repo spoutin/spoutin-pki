@@ -449,6 +449,7 @@ class StepCaClient:
         serial_number: str,
         reason: str = "cessationOfOperation",
         reason_code: int = 5,
+        **kwargs,
     ) -> bool:
         """Revokes a certificate in step-ca by serial number via REST API."""
         token = self.generate_revocation_token(serial_number)

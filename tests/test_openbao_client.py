@@ -157,6 +157,15 @@ def test_openbao_build_p12_bundle():
 
 
 def test_openbao_revoke_certificate():
+    from services.wifi_enrollment.openbao_client import format_serial_for_openbao
+
+    # Test serial formatting helper
+    dec_serial = "510239847140576130410385357357929530021263173280"
+    formatted = format_serial_for_openbao(dec_serial)
+    assert formatted == "59:5f:f2:30:b2:08:26:a4:43:7e:2d:64:7e:ec:7c:b8:3a:07:e6:a0"
+    assert format_serial_for_openbao("12-34-56") == "12:34:56"
+    assert format_serial_for_openbao("12:34:56") == "12:34:56"
+
     client = OpenBaoCaClient(
         base_url="http://127.0.0.1:8200",
         token="s.valid-token",
@@ -169,11 +178,28 @@ def test_openbao_revoke_certificate():
         mock_resp.status_code = 200
         mock_post.return_value = mock_resp
 
-        result = client.revoke_certificate("12345678abcd", reason=0)
+        # Test revoking with decimal serial -> converts to colon format
+        result = client.revoke_certificate(dec_serial, reason=0)
         assert result is True
         mock_post.assert_called_once()
         assert "v1/pki/revoke" in mock_post.call_args[0][0]
-        assert mock_post.call_args[1]["json"]["serial_number"] == "12345678abcd"
+        assert mock_post.call_args[1]["json"]["serial_number"] == "59:5f:f2:30:b2:08:26:a4:43:7e:2d:64:7e:ec:7c:b8:3a:07:e6:a0"
+
+        # Test revoking with cert_pem fallback on 400
+        mock_resp_fail = MagicMock()
+        mock_resp_fail.ok = False
+        mock_resp_fail.status_code = 400
+        mock_resp_fail.json.return_value = {"errors": ["certificate not found"]}
+
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.ok = True
+        mock_resp_ok.status_code = 200
+
+        mock_post.side_effect = [mock_resp_fail, mock_resp_ok]
+        result2 = client.revoke_certificate("non-existent-serial", cert_pem="-----BEGIN CERTIFICATE-----\nxyz\n-----END CERTIFICATE-----")
+        assert result2 is True
+        assert mock_post.call_count == 3
+        assert mock_post.call_args[1]["json"]["certificate"] == "-----BEGIN CERTIFICATE-----\nxyz\n-----END CERTIFICATE-----"
 
 
 def test_openbao_get_crl():

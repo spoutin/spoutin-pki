@@ -14,6 +14,25 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 
+def format_serial_for_openbao(serial: str) -> str:
+    """Formats a decimal integer string or hex string into OpenBao's colon-separated hex format."""
+    s = str(serial).strip()
+    if not s:
+        return ""
+    if ":" in s or "-" in s:
+        return s.replace("-", ":").lower()
+
+    try:
+        hex_str = format(int(s), "x")
+    except ValueError:
+        hex_str = s.lower()
+
+    if len(hex_str) % 2 != 0:
+        hex_str = "0" + hex_str
+
+    return ":".join(hex_str[i:i + 2] for i in range(0, len(hex_str), 2)).lower()
+
+
 class OpenBaoCaClient:
     """Client for OpenBao / HashiCorp Vault PKI Secrets Engine with AppRole authentication."""
 
@@ -216,6 +235,7 @@ class OpenBaoCaClient:
         serial_number: str,
         reason: int = 0,
         cert_pem: Optional[str] = None,
+        **kwargs,
     ) -> bool:
         """Revokes a certificate in OpenBao by serial number or certificate PEM."""
         token = self._ensure_authenticated()
@@ -227,17 +247,24 @@ class OpenBaoCaClient:
         if "BEGIN CERTIFICATE" in serial_number:
             payload = {"certificate": serial_number}
         else:
-            clean_serial = serial_number.strip().lower()
+            clean_serial = format_serial_for_openbao(serial_number)
             payload = {"serial_number": clean_serial}
 
         resp = self.session.post(endpoint, json=payload, headers=headers, verify=self.verify_ssl, timeout=10)
         if resp.status_code in (200, 204):
             return True
 
-        # Fallback: if not found in OpenBao storage by serial, try revoking by certificate PEM if available
-        if resp.status_code == 400 and cert_pem and "BEGIN CERTIFICATE" in cert_pem:
+        # Fallback 1: if not found in OpenBao storage by serial, try revoking by certificate PEM if available
+        if cert_pem and "BEGIN CERTIFICATE" in cert_pem:
             resp_pem = self.session.post(endpoint, json={"certificate": cert_pem}, headers=headers, verify=self.verify_ssl, timeout=10)
             if resp_pem.status_code in (200, 204):
+                return True
+
+        # Fallback 2: try plain hex without colons
+        if "serial_number" in payload and ":" in payload["serial_number"]:
+            plain_serial = payload["serial_number"].replace(":", "")
+            resp_plain = self.session.post(endpoint, json={"serial_number": plain_serial}, headers=headers, verify=self.verify_ssl, timeout=10)
+            if resp_plain.status_code in (200, 204):
                 return True
 
         if not resp.ok:
