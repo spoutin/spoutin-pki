@@ -358,4 +358,133 @@
     formError.classList.add("hidden");
     showView(formView);
   });
+
+  // ================= SSH PORTAL TAB & WORKFLOW =================
+  const tabWifiBtn = document.getElementById("tab-wifi-btn");
+  const tabSshBtn = document.getElementById("tab-ssh-btn");
+  const wifiTabSection = document.getElementById("wifi-tab-section");
+  const sshTabSection = document.getElementById("ssh-tab-section");
+
+  if (tabWifiBtn && tabSshBtn) {
+    tabWifiBtn.addEventListener("click", () => {
+      tabWifiBtn.classList.add("active");
+      tabSshBtn.classList.remove("active");
+      wifiTabSection.classList.remove("hidden");
+      sshTabSection.classList.add("hidden");
+    });
+    tabSshBtn.addEventListener("click", () => {
+      tabSshBtn.classList.add("active");
+      tabWifiBtn.classList.remove("active");
+      sshTabSection.classList.remove("hidden");
+      wifiTabSection.classList.add("hidden");
+    });
+  }
+
+  const sshEnrollForm = document.getElementById("ssh-enroll-form");
+  const sshFormView = document.getElementById("ssh-form-view");
+  const sshWaitingView = document.getElementById("ssh-waiting-view");
+  const sshApprovedView = document.getElementById("ssh-approved-view");
+  const sshRejectedView = document.getElementById("ssh-rejected-view");
+  const sshFormError = document.getElementById("ssh-form-error");
+  const sshWaitingUsername = document.getElementById("ssh-waiting-username");
+  const sshCertText = document.getElementById("ssh-cert-text");
+  const copySshCertBtn = document.getElementById("copy-ssh-cert-btn");
+  const downloadSshCertBtn = document.getElementById("download-ssh-cert-btn");
+  const sshRetryBtn = document.getElementById("ssh-retry-btn");
+
+  let sshPollInterval = null;
+
+  function showSshView(view) {
+    if (sshFormView) sshFormView.classList.add("hidden");
+    if (sshWaitingView) sshWaitingView.classList.add("hidden");
+    if (sshApprovedView) sshApprovedView.classList.add("hidden");
+    if (sshRejectedView) sshRejectedView.classList.add("hidden");
+    if (view) view.classList.remove("hidden");
+  }
+
+  if (sshEnrollForm) {
+    sshEnrollForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      sshFormError.classList.add("hidden");
+      const name = document.getElementById("ssh_name").value.trim();
+      const username = document.getElementById("ssh_username").value.trim();
+      const deviceName = document.getElementById("ssh_device_name").value.trim();
+      const publicKey = document.getElementById("ssh_public_key").value.trim();
+
+      if (!publicKey.startsWith("ssh-") && !publicKey.startsWith("ecdsa-")) {
+        sshFormError.textContent = "Invalid public key format. Must start with ssh-ed25519, ssh-rsa, etc.";
+        sshFormError.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        const resp = await fetch("/api/ssh/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, username, device_name: deviceName, public_key: publicKey }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Submission failed");
+        }
+        const data = await resp.json();
+        sshWaitingUsername.textContent = username;
+        showSshView(sshWaitingView);
+        pollSshRequest(data.request_id);
+      } catch (err) {
+        sshFormError.textContent = err.message;
+        sshFormError.classList.remove("hidden");
+      }
+    });
+  }
+
+  function pollSshRequest(requestId) {
+    if (sshPollInterval) clearInterval(sshPollInterval);
+    sshPollInterval = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/ssh/status/${requestId}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.status === "APPROVED") {
+          clearInterval(sshPollInterval);
+          sshCertText.value = data.certificate || `Certificate issued for ${data.username}.\nSerial: ${data.request_id}`;
+          showSshView(sshApprovedView);
+        } else if (data.status === "REJECTED") {
+          clearInterval(sshPollInterval);
+          showSshView(sshRejectedView);
+        }
+      } catch (e) {
+        console.error("SSH poll failed", e);
+      }
+    }, 2500);
+  }
+
+  if (copySshCertBtn) {
+    copySshCertBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(sshCertText.value).then(() => {
+        copySshCertBtn.textContent = "✅ Copied!";
+        setTimeout(() => { copySshCertBtn.textContent = "📋 Copy Certificate"; }, 2000);
+      });
+    });
+  }
+
+  if (downloadSshCertBtn) {
+    downloadSshCertBtn.addEventListener("click", () => {
+      const blob = new Blob([sshCertText.value], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "id_ed25519-cert.pub";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  if (sshRetryBtn) {
+    sshRetryBtn.addEventListener("click", () => {
+      showSshView(sshFormView);
+    });
+  }
 })();

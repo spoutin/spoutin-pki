@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from services.wifi_enrollment.auth import create_session_token
 from services.wifi_enrollment.models import DevicePlatform, VlanOption
 from services.wifi_enrollment.server import create_app
 from services.wifi_enrollment.state_manager import StateManager
@@ -141,7 +142,8 @@ def test_index_page(test_app):
     client, _, _ = test_app
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "Spoutin Wi-Fi Access" in resp.text
+    assert "Spoutin PKI" in resp.text
+    assert "Wi-Fi Access" in resp.text
     assert "favicon.svg" in resp.text
     assert "logo.svg" in resp.text
     assert "instruction-platform-select" in resp.text
@@ -202,3 +204,26 @@ def test_crl_endpoint_with_openbao():
     assert resp.status_code == 200
     assert b"openbao-crl" in resp.content
     mock_bao.get_crl.assert_called_once_with(as_pem=True)
+
+
+def test_portal_html_contains_pki_and_ssh_tab():
+    app = create_app()
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Spoutin PKI" in resp.text
+    assert "SSH Certificate" in resp.text
+
+
+def test_admin_html_contains_ssh_section():
+    app = create_app()
+    app.state.session_secret_key = "test-secret"
+    app.state.allowed_admin_emails = "admin@spoutin.org"
+    client = TestClient(app)
+    token = create_session_token("admin@spoutin.org", "Adam", secret_key="test-secret")
+    client.cookies.set("wifi_admin_session", token)
+    resp = client.get("/admin")
+    assert resp.status_code == 200
+    assert "Spoutin PKI" in resp.text
+    assert "SSH Access" in resp.text
+    assert "Quick-Sign" in resp.text

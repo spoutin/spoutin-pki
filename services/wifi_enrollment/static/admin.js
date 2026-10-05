@@ -11,9 +11,21 @@
 
   const tabBtnRequests = document.getElementById("tab-btn-requests");
   const tabBtnInventory = document.getElementById("tab-btn-inventory");
+  const tabBtnSsh = document.getElementById("tab-btn-ssh");
   const tabRequestsView = document.getElementById("tab-requests-view");
   const tabInventoryView = document.getElementById("tab-inventory-view");
+  const tabSshView = document.getElementById("tab-ssh-view");
   const pendingCounter = document.getElementById("pending-counter");
+
+  const adminQuickSignForm = document.getElementById("admin-quick-sign-form");
+  const qsResult = document.getElementById("qs-result");
+  const qsCertOutput = document.getElementById("qs-cert-output");
+  const qsCopyBtn = document.getElementById("qs-copy-btn");
+  const qsDownloadBtn = document.getElementById("qs-download-btn");
+  const sshRequestsTbody = document.getElementById("ssh-requests-tbody");
+  const sshRequestsEmpty = document.getElementById("ssh-requests-empty");
+  const sshInventoryTbody = document.getElementById("ssh-inventory-tbody");
+  const sshInventoryEmpty = document.getElementById("ssh-inventory-empty");
 
   const requestsTbody = document.getElementById("requests-tbody");
   const requestsEmpty = document.getElementById("requests-empty");
@@ -117,16 +129,23 @@
 
   // --- Tab Switcher Helper ---
   function switchToTab(tabName) {
+    tabBtnRequests.classList.remove("active");
+    tabBtnInventory.classList.remove("active");
+    if (tabBtnSsh) tabBtnSsh.classList.remove("active");
+    tabRequestsView.classList.add("hidden");
+    tabInventoryView.classList.add("hidden");
+    if (tabSshView) tabSshView.classList.add("hidden");
+
     if (tabName === "requests") {
       tabBtnRequests.classList.add("active");
-      tabBtnInventory.classList.remove("active");
       tabRequestsView.classList.remove("hidden");
-      tabInventoryView.classList.add("hidden");
-    } else {
+    } else if (tabName === "inventory") {
       tabBtnInventory.classList.add("active");
-      tabBtnRequests.classList.remove("active");
       tabInventoryView.classList.remove("hidden");
-      tabRequestsView.classList.add("hidden");
+    } else if (tabName === "ssh") {
+      if (tabBtnSsh) tabBtnSsh.classList.add("active");
+      if (tabSshView) tabSshView.classList.remove("hidden");
+      refreshSshData();
     }
   }
 
@@ -719,6 +738,201 @@
     refreshInventory();
     refreshStats();
   });
+
+  if (tabBtnSsh) {
+    tabBtnSsh.addEventListener("click", () => {
+      switchToTab("ssh");
+    });
+  }
+
+  async function refreshSshData() {
+    await Promise.all([refreshSshRequests(), refreshSshInventory()]);
+  }
+
+  async function refreshSshRequests() {
+    if (!sshRequestsTbody) return;
+    try {
+      const resp = await adminFetch("/api/admin/ssh/requests?status=PENDING");
+      if (!resp.ok) return;
+      const requests = await resp.json();
+      sshRequestsTbody.innerHTML = "";
+      if (requests.length === 0) {
+        if (sshRequestsEmpty) sshRequestsEmpty.classList.remove("hidden");
+        return;
+      }
+      if (sshRequestsEmpty) sshRequestsEmpty.classList.add("hidden");
+
+      requests.forEach((r) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(r.name)}</strong></td>
+          <td><code>${escapeHtml(r.username)}</code></td>
+          <td>${escapeHtml(r.device_name)}</td>
+          <td><code>${escapeHtml(r.principals)}</code></td>
+          <td><code style="font-size: 0.72rem;">${escapeHtml(r.key_fingerprint)}</code></td>
+          <td class="actions-cell">
+            <div class="action-buttons">
+              <button class="btn-sm btn-approve" data-action="ssh-approve" data-id="${r.request_id}">⚡ Approve</button>
+              <button class="btn-sm btn-reject" data-action="ssh-reject" data-id="${r.request_id}">❌ Reject</button>
+            </div>
+          </td>
+        `;
+        sshRequestsTbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.error("Failed to load SSH requests", e);
+    }
+  }
+
+  async function refreshSshInventory() {
+    if (!sshInventoryTbody) return;
+    try {
+      const resp = await adminFetch("/api/admin/ssh/certificates");
+      if (!resp.ok) return;
+      const certs = await resp.json();
+      sshInventoryTbody.innerHTML = "";
+      if (certs.length === 0) {
+        if (sshInventoryEmpty) sshInventoryEmpty.classList.remove("hidden");
+        return;
+      }
+      if (sshInventoryEmpty) sshInventoryEmpty.classList.add("hidden");
+
+      certs.forEach((c) => {
+        const tr = document.createElement("tr");
+        const isRevoked = c.status === "REVOKED";
+        const statusBadge = isRevoked
+          ? `<span class="badge badge-revoked">REVOKED</span>`
+          : `<span class="badge badge-active">ACTIVE</span>`;
+        const revokeBtn = isRevoked
+          ? ""
+          : `<button class="btn-sm btn-reject" data-action="ssh-revoke" data-serial="${c.serial_number}">Revoke</button>`;
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(c.key_id)}</strong></td>
+          <td><code>${escapeHtml(c.serial_number)}</code></td>
+          <td><code>${escapeHtml(c.principals)}</code></td>
+          <td><code style="font-size: 0.72rem;">${escapeHtml(c.key_fingerprint || "-")}</code></td>
+          <td>${statusBadge}</td>
+          <td>${revokeBtn}</td>
+        `;
+        sshInventoryTbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.error("Failed to load SSH inventory", e);
+    }
+  }
+
+  // Quick Sign Form submit
+  if (adminQuickSignForm) {
+    adminQuickSignForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const keyId = document.getElementById("qs-key-id").value.trim();
+      const principals = document.getElementById("qs-principals").value.split(",").map(p => p.trim()).filter(Boolean);
+      const publicKey = document.getElementById("qs-public-key").value.trim();
+      const ttl = document.getElementById("qs-ttl").value.trim();
+      const submitBtn = document.getElementById("btn-quick-sign");
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Signing with OpenBao...";
+      try {
+        const resp = await adminFetch("/api/admin/ssh/quick-sign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key_id: keyId, principals, public_key: publicKey, ttl }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Signing failed");
+        }
+        const data = await resp.json();
+        qsCertOutput.value = data.certificate;
+        qsResult.classList.remove("hidden");
+        refreshSshInventory();
+      } catch (err) {
+        alert("Quick-sign failed: " + err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "⚡ Sign & Issue Certificate";
+      }
+    });
+  }
+
+  if (qsCopyBtn) {
+    qsCopyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(qsCertOutput.value).then(() => {
+        qsCopyBtn.textContent = "✅ Copied!";
+        setTimeout(() => { qsCopyBtn.textContent = "📋 Copy"; }, 2000);
+      });
+    });
+  }
+
+  if (qsDownloadBtn) {
+    qsDownloadBtn.addEventListener("click", () => {
+      const blob = new Blob([qsCertOutput.value], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "id_ed25519-cert.pub";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  // SSH Table Actions
+  if (sshRequestsTbody) {
+    sshRequestsTbody.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-action]");
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const reqId = btn.dataset.id;
+      if (action === "ssh-approve") {
+        btn.disabled = true;
+        btn.textContent = "Approving...";
+        try {
+          const resp = await adminFetch(`/api/admin/ssh/requests/${reqId}/approve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          if (!resp.ok) throw new Error("Approval failed");
+          refreshSshData();
+        } catch (err) {
+          alert("Approval failed: " + err.message);
+          btn.disabled = false;
+        }
+      } else if (action === "ssh-reject") {
+        if (!confirm("Reject this SSH request?")) return;
+        btn.disabled = true;
+        try {
+          await adminFetch(`/api/admin/ssh/requests/${reqId}/reject`, { method: "POST" });
+          refreshSshData();
+        } catch (err) {
+          alert("Reject failed: " + err.message);
+          btn.disabled = false;
+        }
+      }
+    });
+  }
+
+  if (sshInventoryTbody) {
+    sshInventoryTbody.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-action='ssh-revoke']");
+      if (!btn) return;
+      const serial = btn.dataset.serial;
+      if (!confirm(`Are you sure you want to revoke SSH certificate serial ${serial}?`)) return;
+      btn.disabled = true;
+      try {
+        const resp = await adminFetch(`/api/admin/ssh/certificates/${serial}/revoke`, { method: "POST" });
+        if (!resp.ok) throw new Error("Revocation failed");
+        refreshSshInventory();
+      } catch (err) {
+        alert("Revoke failed: " + err.message);
+        btn.disabled = false;
+      }
+    });
+  }
 
   // --- Manual Refresh Button ---
   if (btnRefresh) {

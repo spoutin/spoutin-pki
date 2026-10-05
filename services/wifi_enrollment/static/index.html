@@ -3,117 +3,209 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spoutin Wi-Fi Setup</title>
+  <title>Spoutin PKI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/styles.css?v=0.2.22">
+  <link rel="stylesheet" href="/static/styles.css?v=0.3.0">
 </head>
 <body>
   <div class="container">
     <div class="header">
       <div class="logo-wrapper">
-        <img src="/static/logo.svg" alt="Spoutin Wi-Fi Logo" class="app-logo">
+        <img src="/static/logo.svg" alt="Spoutin PKI Logo" class="app-logo">
       </div>
-      <h1>Spoutin Wi-Fi Access</h1>
-      <p>Secure 802.1X EAP-TLS Device Enrollment</p>
+      <h1>Spoutin PKI</h1>
+      <p>Secure Wi-Fi & SSH Certificate Portal</p>
+    </div>
+
+    <!-- Navigation Switcher for Wi-Fi and SSH -->
+    <div class="portal-nav">
+      <button type="button" class="portal-tab-btn active" id="tab-wifi-btn">📶 Wi-Fi Access</button>
+      <button type="button" class="portal-tab-btn" id="tab-ssh-btn">🔑 SSH Certificate</button>
     </div>
 
     <div class="content">
-      <!-- 1. Request Form View -->
-      <div id="form-view">
-        <form id="enroll-form">
-          <div class="form-group">
-            <label for="device_name">Device Name</label>
-            <input type="text" id="device_name" name="device_name" placeholder="e.g. ablack-phone" required autocomplete="off" autocorrect="off" autocapitalize="none">
-            <div class="hint">
-              Wi-Fi Identity: <span id="preview-text" class="preview-badge">none</span>
+      <!-- ================= 1. WI-FI SECTION ================= -->
+      <div id="wifi-tab-section">
+        <!-- Request Form View -->
+        <div id="form-view">
+          <form id="enroll-form">
+            <div class="form-group">
+              <label for="device_name">Device Name</label>
+              <input type="text" id="device_name" name="device_name" placeholder="e.g. ablack-phone" required autocomplete="off" autocorrect="off" autocapitalize="none">
+              <div class="hint">
+                Wi-Fi Identity: <span id="preview-text" class="preview-badge">none</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="platform">Your Device Type</label>
+              <select id="platform" name="platform">
+                <option value="android">Android (Samsung, Pixel, etc.)</option>
+                <option value="ios">iPhone / iPad (iOS)</option>
+                <option value="macos">Mac (macOS)</option>
+                <option value="windows">Windows</option>
+                <option value="other">Other Device</option>
+              </select>
+            </div>
+
+            <div id="form-error" class="banner banner-error hidden"></div>
+
+            <button type="submit" id="submit-btn" class="btn">Request Wi-Fi Access</button>
+          </form>
+        </div>
+
+        <!-- Waiting Screen View -->
+        <div id="waiting-view" class="hidden">
+          <div class="spinner-box">
+            <div class="spinner"></div>
+            <h2>Waiting for Approval</h2>
+            <p class="hint" style="margin-top: 0.5rem;">
+              A request for <strong id="waiting-device-name">...</strong> was sent to the network administrator via Slack.
+            </p>
+            <p class="hint" style="margin-top: 1rem;">
+              Please leave this page open. Your certificate will be ready for download once approved.
+            </p>
+          </div>
+        </div>
+
+        <!-- Approved Screen View -->
+        <div id="approved-view" class="hidden">
+          <div class="banner banner-success">
+            <strong>✅ Request Approved!</strong>
+            <div style="font-size: 0.85rem; margin-top: 0.25rem;">Your Wi-Fi certificate is ready. Download it below and install with your PIN.</div>
+          </div>
+
+          <div class="pin-card">
+            <div class="pin-label">Certificate Import PIN</div>
+            <div id="approved-pin" class="pin-code">----</div>
+            <div class="hint" style="color: var(--pin-text);">Enter this 4-digit PIN when importing the Wi-Fi certificate on your device.</div>
+          </div>
+
+          <div class="instructions-box">
+            <strong>Wi-Fi Connection Settings</strong>
+            <div style="margin-top: 0.5rem; font-size: 0.85rem;">
+              • <strong>Network (SSID):</strong> Spoutin-Secure<br>
+              • <strong>Identity:</strong> <code id="approved-identity">...</code><br>
+              • <strong>Domain:</strong> <code id="approved-domain">radius.int.spoutin.org</code><br>
+              • <strong>Assigned VLAN:</strong> <span id="approved-vlan">...</span>
+            </div>
+
+            <div class="instruction-platform-select-wrapper" style="margin-top: 1rem;">
+              <label for="instruction-platform-select" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">Setup Instructions For:</label>
+              <select id="instruction-platform-select" class="instruction-select">
+                <option value="windows-11">Windows 11</option>
+                <option value="windows-10">Windows 10</option>
+                <option value="android">Android (Samsung, Pixel, etc.)</option>
+                <option value="ios">iPhone / iPad (iOS)</option>
+                <option value="macos">Mac (macOS)</option>
+                <option value="other">Other / Linux</option>
+              </select>
+            </div>
+
+            <div id="platform-instructions" style="margin-top: 0.75rem;">
+              <!-- Platform specific instructions injected by app.js -->
             </div>
           </div>
 
-          <div class="form-group">
-            <label for="platform">Your Device Type</label>
-            <select id="platform" name="platform">
-              <option value="android">Android (Samsung, Pixel, etc.)</option>
-              <option value="ios">iPhone / iPad (iOS)</option>
-              <option value="macos">Mac (macOS)</option>
-              <option value="windows">Windows</option>
-              <option value="other">Other Device</option>
-            </select>
+          <a id="manual-download-btn" href="#" class="btn" style="margin-top: 1rem;">⬇️ Download Wi-Fi Certificate (.p12)</a>
+        </div>
+
+        <!-- Rejected / Expired View -->
+        <div id="rejected-view" class="hidden">
+          <div class="banner banner-error">
+            <strong id="reject-title">Request Not Approved</strong>
+            <p id="reject-reason" style="margin-top: 0.4rem; font-size: 0.9rem;">The request was rejected or has expired.</p>
           </div>
-
-          <div id="form-error" class="banner banner-error hidden"></div>
-
-          <button type="submit" id="submit-btn" class="btn">Request Wi-Fi Access</button>
-        </form>
-      </div>
-
-      <!-- 2. Waiting Screen View -->
-      <div id="waiting-view" class="hidden">
-        <div class="spinner-box">
-          <div class="spinner"></div>
-          <h2>Waiting for Approval</h2>
-          <p class="hint" style="margin-top: 0.5rem;">
-            A request for <strong id="waiting-device-name">...</strong> was sent to the network administrator via Slack.
-          </p>
-          <p class="hint" style="margin-top: 1rem;">
-            Please leave this page open. Your certificate will be ready for download once approved.
-          </p>
+          <button id="retry-btn" class="btn btn-secondary">Submit New Request</button>
         </div>
       </div>
 
-      <!-- 3. Approved Screen View -->
-      <div id="approved-view" class="hidden">
-        <div class="banner banner-success">
-          <strong>✅ Request Approved!</strong>
-          <div style="font-size: 0.85rem; margin-top: 0.25rem;">Your Wi-Fi certificate is ready. Download it below and install with your PIN.</div>
+      <!-- ================= 2. SSH CERTIFICATE SECTION ================= -->
+      <div id="ssh-tab-section" class="hidden">
+        <!-- SSH Request Form -->
+        <div id="ssh-form-view">
+          <form id="ssh-enroll-form">
+            <div class="form-group">
+              <label for="ssh_name">Your Full Name</label>
+              <input type="text" id="ssh_name" name="name" placeholder="e.g. Adam Black" required autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label for="ssh_username">Requested Username (Key ID)</label>
+              <input type="text" id="ssh_username" name="username" placeholder="e.g. ablack or operator" required autocomplete="off" autocorrect="off" autocapitalize="none">
+              <div class="hint">Allowed principals default to: <code>ablack, root, operator</code> for ablack; <code>operator</code> for others.</div>
+            </div>
+
+            <div class="form-group">
+              <label for="ssh_device_name">Device / Key Label</label>
+              <input type="text" id="ssh_device_name" name="device_name" placeholder="e.g. MacBook Air M2" required autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label for="ssh_public_key">OpenSSH Public Key</label>
+              <textarea id="ssh_public_key" name="public_key" rows="4" placeholder="Paste your public key here (ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...)" required style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main);"></textarea>
+              <div class="hint">Generate a key locally: <code>ssh-keygen -t ed25519</code> &bull; Private key stays on your computer!</div>
+            </div>
+
+            <div id="ssh-form-error" class="banner banner-error hidden"></div>
+
+            <button type="submit" id="ssh-submit-btn" class="btn">Request Signed SSH Certificate</button>
+          </form>
         </div>
 
-        <div class="pin-card">
-          <div class="pin-label">Certificate Import PIN</div>
-          <div id="approved-pin" class="pin-code">----</div>
-          <div class="hint" style="color: var(--pin-text);">Enter this 4-digit PIN when importing the Wi-Fi certificate on your device.</div>
+        <!-- SSH Waiting Screen View -->
+        <div id="ssh-waiting-view" class="hidden">
+          <div class="spinner-box">
+            <div class="spinner"></div>
+            <h2>Waiting for SSH Approval</h2>
+            <p class="hint" style="margin-top: 0.5rem;">
+              An SSH signing request for <strong id="ssh-waiting-username">...</strong> was sent to the network administrator via Slack.
+            </p>
+            <p class="hint" style="margin-top: 1rem;">
+              Please leave this page open. Your signed certificate will appear here once approved.
+            </p>
+          </div>
         </div>
 
-        <div class="instructions-box">
-          <strong>Wi-Fi Connection Settings</strong>
-          <div style="margin-top: 0.5rem; font-size: 0.85rem;">
-            • <strong>Network (SSID):</strong> Spoutin-Secure<br>
-            • <strong>Identity:</strong> <code id="approved-identity">...</code><br>
-            • <strong>Domain:</strong> <code id="approved-domain">radius.int.spoutin.org</code><br>
-            • <strong>Assigned VLAN:</strong> <span id="approved-vlan">...</span>
+        <!-- SSH Approved Screen View -->
+        <div id="ssh-approved-view" class="hidden">
+          <div class="banner banner-success">
+            <strong>✅ SSH Certificate Signed!</strong>
+            <div style="font-size: 0.85rem; margin-top: 0.25rem;">Your OpenSSH signed certificate has been issued by OpenBao.</div>
           </div>
 
-          <div class="instruction-platform-select-wrapper" style="margin-top: 1rem;">
-            <label for="instruction-platform-select" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">Setup Instructions For:</label>
-            <select id="instruction-platform-select" class="instruction-select">
-              <option value="windows-11">Windows 11</option>
-              <option value="windows-10">Windows 10</option>
-              <option value="android">Android (Samsung, Pixel, etc.)</option>
-              <option value="ios">iPhone / iPad (iOS)</option>
-              <option value="macos">Mac (macOS)</option>
-              <option value="other">Other / Linux</option>
-            </select>
+          <div class="pin-card" style="text-align: left; padding: 1rem;">
+            <div class="pin-label" style="text-align: left; margin-bottom: 0.5rem;">Signed Certificate Content</div>
+            <textarea id="ssh-cert-text" readonly rows="5" style="width: 100%; font-family: monospace; font-size: 0.75rem; background: var(--bg); color: var(--text-main); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem;"></textarea>
+            <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+              <button type="button" id="copy-ssh-cert-btn" class="btn btn-secondary" style="flex: 1; padding: 0.5rem;">📋 Copy Certificate</button>
+              <button type="button" id="download-ssh-cert-btn" class="btn" style="flex: 1; padding: 0.5rem;">⬇️ Download -cert.pub</button>
+            </div>
           </div>
 
-          <div id="platform-instructions" style="margin-top: 0.75rem;">
-            <!-- Platform specific instructions injected by app.js -->
+          <div class="instructions-box">
+            <strong>Client Configuration</strong>
+            <div style="margin-top: 0.5rem; font-size: 0.85rem;">
+              1. Save the certificate file as <code>~/.ssh/id_ed25519-cert.pub</code> next to your private key.<br>
+              2. Inspect certificate: <code>ssh-keygen -Lf ~/.ssh/id_ed25519-cert.pub</code><br>
+              3. Connect to any trusted host: <code>ssh ablack@pve1.int.spoutin.org</code>
+            </div>
           </div>
         </div>
 
-        <a id="manual-download-btn" href="#" class="btn" style="margin-top: 1rem;">⬇️ Download Wi-Fi Certificate (.p12)</a>
-      </div>
-
-      <!-- 4. Rejected / Expired View -->
-      <div id="rejected-view" class="hidden">
-        <div class="banner banner-error">
-          <strong id="reject-title">Request Not Approved</strong>
-          <p id="reject-reason" style="margin-top: 0.4rem; font-size: 0.9rem;">The request was rejected or has expired.</p>
+        <!-- SSH Rejected View -->
+        <div id="ssh-rejected-view" class="hidden">
+          <div class="banner banner-error">
+            <strong>SSH Request Not Approved</strong>
+            <p style="margin-top: 0.4rem; font-size: 0.9rem;">The SSH key signing request was rejected or expired.</p>
+          </div>
+          <button id="ssh-retry-btn" class="btn btn-secondary">Submit New SSH Request</button>
         </div>
-        <button id="retry-btn" class="btn btn-secondary">Submit New Request</button>
       </div>
 
     </div>
   </div>
 
-  <script src="/static/app.js?v=0.2.22"></script>
+  <script src="/static/app.js?v=0.3.0"></script>
 </body>
 </html>

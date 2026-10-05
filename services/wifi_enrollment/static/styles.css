@@ -57,10 +57,44 @@ body {
   width: 100%;
   max-width: 480px;
   background: var(--card-bg);
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.portal-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 1.5rem 1rem 1.5rem;
+  background: var(--bg);
+  padding: 0.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.portal-tab-btn {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.portal-tab-btn:hover {
+  color: var(--text-main);
+}
+
+.portal-tab-btn.active {
+  background: var(--primary);
+  color: #fff;
 }
 
 .header {
