@@ -1,6 +1,6 @@
 [project]
 name = "spoutin-pki"
-version = "0.2.22b4"
+version = "0.2.22"
 description = "Spoutin Home Network PKI Monorepo & Automated Wi-Fi EAP-TLS Enrollment Service"
 readme = "README.md"
 requires-python = ">=3.10"
