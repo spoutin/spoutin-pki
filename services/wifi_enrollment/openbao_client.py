@@ -215,21 +215,30 @@ class OpenBaoCaClient:
         self,
         serial_number: str,
         reason: int = 0,
+        cert_pem: Optional[str] = None,
     ) -> bool:
-        """Revokes a certificate in OpenBao by serial number."""
+        """Revokes a certificate in OpenBao by serial number or certificate PEM."""
         token = self._ensure_authenticated()
         endpoint = f"{self.base_url}/v1/{self.pki_mount}/revoke"
         headers = {
             "X-Vault-Token": token,
             "Content-Type": "application/json",
         }
-        # OpenBao/Vault takes colon-separated or plain hex serial
-        clean_serial = serial_number.strip().lower()
-        payload = {"serial_number": clean_serial}
+        if "BEGIN CERTIFICATE" in serial_number:
+            payload = {"certificate": serial_number}
+        else:
+            clean_serial = serial_number.strip().lower()
+            payload = {"serial_number": clean_serial}
 
         resp = self.session.post(endpoint, json=payload, headers=headers, verify=self.verify_ssl, timeout=10)
         if resp.status_code in (200, 204):
             return True
+
+        # Fallback: if not found in OpenBao storage by serial, try revoking by certificate PEM if available
+        if resp.status_code == 400 and cert_pem and "BEGIN CERTIFICATE" in cert_pem:
+            resp_pem = self.session.post(endpoint, json={"certificate": cert_pem}, headers=headers, verify=self.verify_ssl, timeout=10)
+            if resp_pem.status_code in (200, 204):
+                return True
 
         if not resp.ok:
             error_detail = resp.text
