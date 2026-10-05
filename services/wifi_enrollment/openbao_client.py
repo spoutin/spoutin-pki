@@ -299,3 +299,40 @@ class OpenBaoCaClient:
             except Exception:
                 return crl_data
         return crl_data
+
+    def get_ssh_ca_public_key(self, ssh_mount: str = "ssh") -> str:
+        """Fetches the OpenSSH CA public key from OpenBao."""
+        token = self._ensure_authenticated()
+        url = f"{self.base_url}/v1/{ssh_mount}/config/ca"
+        resp = self.session.get(url, headers={"X-Vault-Token": token}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        pub_key = data.get("public_key")
+        if not pub_key:
+            raise RuntimeError(f"No public_key returned from {url}")
+        return pub_key.strip()
+
+    def sign_ssh_public_key(
+        self,
+        public_key: str,
+        key_id: str,
+        principals: list[str],
+        ttl: str = "70080h",
+        role: str = "admin-user",
+        ssh_mount: str = "ssh",
+    ) -> dict[str, Any]:
+        """Signs an OpenSSH public key with OpenBao SSH secrets engine."""
+        token = self._ensure_authenticated()
+        url = f"{self.base_url}/v1/{ssh_mount}/sign/{role}"
+        payload = {
+            "public_key": public_key.strip(),
+            "key_id": key_id.strip(),
+            "valid_principals": ",".join(p.strip() for p in principals if p.strip()),
+            "ttl": ttl.strip(),
+        }
+        resp = self.session.post(url, headers={"X-Vault-Token": token}, json=payload, timeout=15)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        if not data.get("signed_key"):
+            raise RuntimeError(f"No signed_key returned in OpenBao response: {resp.text}")
+        return data
