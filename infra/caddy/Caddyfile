@@ -30,8 +30,8 @@ captive-portal.int.spoutin.org {
     }
 }
 
-# 2. Spoutin Wi-Fi Enrollment Portal & Admin Dashboard
-wifi.int.spoutin.org {
+# 2. Spoutin PKI & Certificate Portal (Wi-Fi + SSH)
+pki.int.spoutin.org, wifi.int.spoutin.org {
     import cloudflare_tls
     import security_headers
 
