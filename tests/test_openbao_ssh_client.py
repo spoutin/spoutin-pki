@@ -28,6 +28,7 @@ def test_get_ssh_ca_public_key(mock_openbao):
         mock_get.assert_called_with(
             "https://secrets.example.com:8200/v1/ssh/config/ca",
             headers={"X-Vault-Token": "s.mock-token"},
+            verify=False,
             timeout=10,
         )
 
@@ -59,3 +60,4 @@ def test_sign_ssh_public_key(mock_openbao):
         assert kwargs["json"]["key_id"] == "ablack"
         assert kwargs["json"]["valid_principals"] == "ablack,root,operator"
         assert kwargs["json"]["ttl"] == "70080h"
+        assert kwargs["verify"] is False
