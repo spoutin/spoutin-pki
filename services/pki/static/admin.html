@@ -336,6 +336,41 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=0.2.22"></script>
+  <!-- MODAL: Edit & Approve SSH Signing Request -->
+  <div id="edit-ssh-approve-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Edit &amp; Approve SSH Certificate</h2>
+        <p class="modal-subtitle">Customize principals, username, and validity before signing</p>
+      </div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label for="edit-ssh-key-id">Key ID / Username</label>
+          <input type="text" id="edit-ssh-key-id" class="search-input" style="width: 100%;">
+          <p class="field-hint">The identity that will be permanently stamped on the certificate and logged by sshd.</p>
+        </div>
+        <div class="modal-field">
+          <label for="edit-ssh-device">Device Name / Description</label>
+          <input type="text" id="edit-ssh-device" class="search-input" style="width: 100%;">
+        </div>
+        <div class="modal-field">
+          <label for="edit-ssh-principals">Authorized Principals (comma-separated)</label>
+          <input type="text" id="edit-ssh-principals" class="search-input" style="width: 100%;">
+          <p class="field-hint">Unix accounts allowed on servers (e.g. <code>ablack,root,operator</code> or <code>operator</code>).</p>
+        </div>
+        <div class="modal-field">
+          <label for="edit-ssh-ttl">Certificate Validity (TTL)</label>
+          <input type="text" id="edit-ssh-ttl" class="search-input" style="width: 100%;" value="70080h">
+          <p class="field-hint">Defaults to 8 years (<code>70080h</code>). Can be set to e.g. <code>24h</code>, <code>720h</code> (30d), etc.</p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="edit-ssh-cancel-btn" class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);">Cancel</button>
+        <button id="edit-ssh-confirm-btn" class="btn-sm btn-approve">Sign &amp; Approve with OpenBao</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js?v=0.3.0"></script>
 </body>
 </html>

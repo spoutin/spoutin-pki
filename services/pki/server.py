@@ -123,9 +123,11 @@ class SshQuickSignRequest(BaseModel):
 
 
 class SshApproveRequest(BaseModel):
+    key_id: Optional[str] = None
+    device_name: Optional[str] = None
     principals: Optional[list[str]] = None
     ttl: Optional[str] = "70080h"
-    role: Optional[str] = "admin-user"
+    role: Optional[str] = None
 
 
 def calculate_ssh_fingerprint(public_key: str) -> str:
@@ -971,14 +973,16 @@ def create_app(
         if not client or not hasattr(client, "sign_ssh_public_key"):
             raise HTTPException(status_code=503, detail="OpenBao SSH CA is not configured")
 
+        effective_key_id = (body.key_id or req["username"]).strip()
+        effective_device_name = (body.device_name or req.get("device_name", "")).strip()
         principals = body.principals or [p.strip() for p in req["principals"].split(",") if p.strip()]
         ttl = body.ttl or req.get("requested_ttl") or "70080h"
-        role = body.role or ("admin-user" if "root" in principals else "operator-user")
+        role = body.role or ("admin-user" if any(p in ("root", "ablack") for p in principals) else "operator-user")
 
         try:
             res = client.sign_ssh_public_key(
                 public_key=req["public_key"],
-                key_id=req["username"],
+                key_id=effective_key_id,
                 principals=principals,
                 ttl=ttl,
                 role=role,
@@ -989,7 +993,7 @@ def create_app(
             valid_to = now + 8 * 365 * 86400
             db.save_ssh_certificate(
                 serial_number=serial,
-                key_id=req["username"],
+                key_id=effective_key_id,
                 principals=principals,
                 public_key=req["public_key"],
                 key_fingerprint=req["key_fingerprint"],
@@ -1001,7 +1005,7 @@ def create_app(
             return {
                 "serial_number": serial,
                 "certificate": cert,
-                "key_id": req["username"],
+                "key_id": effective_key_id,
                 "principals": principals,
                 "valid_to": valid_to,
             }

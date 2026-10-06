@@ -412,6 +412,16 @@ class SlackEnrollmentHandler:
                         "type": "button",
                         "text": {
                             "type": "plain_text",
+                            "text": "✏️ Edit & Approve",
+                            "emoji": True,
+                        },
+                        "action_id": "ssh_open_edit_modal",
+                        "value": request_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
                             "text": "❌ Reject",
                             "emoji": True,
                         },
@@ -428,6 +438,65 @@ class SlackEnrollmentHandler:
             blocks=blocks,
         )
         return resp.get("ts", "")
+
+    def build_ssh_edit_modal(self, req: dict) -> dict:
+        """Constructs interactive Slack modal to edit Key ID, principals, device name, and TTL prior to approval."""
+        return {
+            "type": "modal",
+            "callback_id": "submit_ssh_edit_approval",
+            "private_metadata": json.dumps({
+                "request_id": req["request_id"],
+                "slack_channel": req.get("slack_channel_id", self.channel_id),
+                "slack_ts": req.get("slack_message_ts", ""),
+            }),
+            "title": {"type": "plain_text", "text": "Approve SSH Key"},
+            "submit": {"type": "plain_text", "text": "Sign & Approve"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "key_id_block",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "key_id_input",
+                        "initial_value": req.get("username", ""),
+                    },
+                    "label": {"type": "plain_text", "text": "Key ID / Username"},
+                    "hint": {"type": "plain_text", "text": "Identity stamped into certificate and logged by sshd."},
+                },
+                {
+                    "type": "input",
+                    "block_id": "device_name_block",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "device_name_input",
+                        "initial_value": req.get("device_name", ""),
+                    },
+                    "label": {"type": "plain_text", "text": "Device / Description"},
+                },
+                {
+                    "type": "input",
+                    "block_id": "principals_block",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "principals_input",
+                        "initial_value": req.get("principals", "ablack,root,operator"),
+                    },
+                    "label": {"type": "plain_text", "text": "Authorized Principals (comma-separated)"},
+                    "hint": {"type": "plain_text", "text": "Allowed Unix accounts on destination servers."},
+                },
+                {
+                    "type": "input",
+                    "block_id": "ttl_block",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "ttl_input",
+                        "initial_value": req.get("requested_ttl", "70080h"),
+                    },
+                    "label": {"type": "plain_text", "text": "Validity (TTL)"},
+                },
+            ],
+        }
 
     def _register_handlers(self) -> None:
         """Registers Bolt action listeners."""
@@ -638,6 +707,91 @@ class SlackEnrollmentHandler:
                     ts=body["message"]["ts"],
                     text=f"❌ *Failed to sign SSH key* for `{req['username']}`: {e}",
                 )
+
+        @self.app.action("ssh_open_edit_modal")
+        def handle_ssh_open_modal(ack, body):
+            ack()
+            request_id = body["actions"][0]["value"]
+            if not self.database:
+                return
+            req = self.database.get_ssh_request(request_id)
+            if not req or req.get("status") != "PENDING":
+                return
+            req["slack_channel_id"] = body["channel"]["id"]
+            req["slack_message_ts"] = body["message"]["ts"]
+            modal = self.build_ssh_edit_modal(req)
+            self.app.client.views_open(
+                trigger_id=body["trigger_id"],
+                view=modal,
+            )
+
+        @self.app.view("submit_ssh_edit_approval")
+        def handle_ssh_modal_submission(ack, body, view):
+            ack()
+            metadata = json.loads(view.get("private_metadata", "{}"))
+            request_id = metadata.get("request_id")
+            channel_id = metadata.get("slack_channel")
+            ts = metadata.get("slack_ts")
+            values = view.get("state", {}).get("values", {})
+            user_name = body.get("user", {}).get("username", "Admin")
+
+            key_id = values["key_id_block"]["key_id_input"]["value"].strip()
+            device_name = values["device_name_block"]["device_name_input"]["value"].strip()
+            principals_raw = values["principals_block"]["principals_input"]["value"]
+            principals = [p.strip() for p in principals_raw.split(",") if p.strip()]
+            ttl = values["ttl_block"]["ttl_input"]["value"].strip() or "70080h"
+
+            if not self.database:
+                return
+            req = self.database.get_ssh_request(request_id)
+            if not req or req.get("status") != "PENDING":
+                return
+
+            if channel_id and ts:
+                self._update_channel_message(
+                    channel=channel_id,
+                    ts=ts,
+                    text=f"⏳ *Processing SSH key approval* for `{key_id}` by @{user_name}...",
+                )
+
+            try:
+                role = "admin-user" if any(p in ("root", "ablack") for p in principals) else "operator-user"
+                res = self.ca_client.sign_ssh_public_key(
+                    public_key=req["public_key"],
+                    key_id=key_id,
+                    principals=principals,
+                    ttl=ttl,
+                    role=role,
+                )
+                serial = str(res.get("serial_number", ""))
+                cert = res.get("signed_key", "")
+                now = int(time.time())
+                valid_to = now + 8 * 365 * 86400
+                self.database.save_ssh_certificate(
+                    serial_number=serial,
+                    key_id=key_id,
+                    principals=principals,
+                    public_key=req["public_key"],
+                    key_fingerprint=req["key_fingerprint"],
+                    certificate=cert,
+                    valid_from=now,
+                    valid_to=valid_to,
+                )
+                self.database.update_ssh_request_status(request_id, "APPROVED", reviewed_by=f"slack:@{user_name}")
+                if channel_id and ts:
+                    self._update_channel_message(
+                        channel=channel_id,
+                        ts=ts,
+                        text=f"✅ *SSH Key Approved (Customized)* for `{key_id}` (`{device_name}`) by @{user_name}.\n*Serial:* `{serial}` | *Principals:* `{','.join(principals)}` | *TTL:* `{ttl}`",
+                    )
+            except Exception as e:
+                logger.error(f"Failed to sign SSH key for request {request_id}: {e}", exc_info=True)
+                if channel_id and ts:
+                    self._update_channel_message(
+                        channel=channel_id,
+                        ts=ts,
+                        text=f"❌ *Failed to sign SSH key* for `{key_id}`: {e}",
+                    )
 
         @self.app.action("ssh_reject")
         def handle_ssh_reject(ack, body):

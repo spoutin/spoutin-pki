@@ -27,6 +27,16 @@
   const sshInventoryTbody = document.getElementById("ssh-inventory-tbody");
   const sshInventoryEmpty = document.getElementById("ssh-inventory-empty");
 
+  const editSshApproveModal = document.getElementById("edit-ssh-approve-modal");
+  const editSshKeyIdInput = document.getElementById("edit-ssh-key-id");
+  const editSshDeviceInput = document.getElementById("edit-ssh-device");
+  const editSshPrincipalsInput = document.getElementById("edit-ssh-principals");
+  const editSshTtlInput = document.getElementById("edit-ssh-ttl");
+  const editSshCancelBtn = document.getElementById("edit-ssh-cancel-btn");
+  const editSshConfirmBtn = document.getElementById("edit-ssh-confirm-btn");
+  let currentEditingSshRequestId = null;
+  let cachedSshRequests = [];
+
   const requestsTbody = document.getElementById("requests-tbody");
   const requestsEmpty = document.getElementById("requests-empty");
 
@@ -755,6 +765,7 @@
       const resp = await adminFetch("/api/admin/ssh/requests?status=PENDING");
       if (!resp.ok) return;
       const requests = await resp.json();
+      cachedSshRequests = requests;
       sshRequestsTbody.innerHTML = "";
       if (requests.length === 0) {
         if (sshRequestsEmpty) sshRequestsEmpty.classList.remove("hidden");
@@ -773,6 +784,7 @@
           <td class="actions-cell">
             <div class="action-buttons">
               <button class="btn-sm btn-approve" data-action="ssh-approve" data-id="${r.request_id}">⚡ Approve</button>
+              <button class="btn-sm btn-reject" style="color: var(--text-main); border-color: var(--border);" data-action="ssh-open-modal" data-id="${r.request_id}">✏️ Edit</button>
               <button class="btn-sm btn-reject" data-action="ssh-reject" data-id="${r.request_id}">❌ Reject</button>
             </div>
           </td>
@@ -887,6 +899,17 @@
       if (!btn) return;
       const action = btn.dataset.action;
       const reqId = btn.dataset.id;
+      if (action === "ssh-open-modal") {
+        const req = cachedSshRequests.find(r => r.request_id === reqId);
+        if (!req) return;
+        currentEditingSshRequestId = reqId;
+        editSshKeyIdInput.value = req.username || "";
+        editSshDeviceInput.value = req.device_name || "";
+        editSshPrincipalsInput.value = req.principals || "ablack,root,operator";
+        editSshTtlInput.value = req.requested_ttl || "70080h";
+        editSshApproveModal.classList.remove("hidden");
+        return;
+      }
       if (action === "ssh-approve") {
         btn.disabled = true;
         btn.textContent = "Approving...";
@@ -912,6 +935,45 @@
           alert("Reject failed: " + err.message);
           btn.disabled = false;
         }
+      }
+    });
+  }
+
+  if (editSshCancelBtn) {
+    editSshCancelBtn.addEventListener("click", () => {
+      editSshApproveModal.classList.add("hidden");
+      currentEditingSshRequestId = null;
+    });
+  }
+
+  if (editSshConfirmBtn) {
+    editSshConfirmBtn.addEventListener("click", async () => {
+      if (!currentEditingSshRequestId) return;
+      const keyId = editSshKeyIdInput.value.trim();
+      const deviceName = editSshDeviceInput.value.trim();
+      const principals = editSshPrincipalsInput.value.split(",").map(p => p.trim()).filter(Boolean);
+      const ttl = editSshTtlInput.value.trim();
+
+      editSshConfirmBtn.disabled = true;
+      editSshConfirmBtn.textContent = "Signing with OpenBao...";
+      try {
+        const resp = await adminFetch(`/api/admin/ssh/requests/${currentEditingSshRequestId}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key_id: keyId, device_name: deviceName, principals, ttl }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Approval failed");
+        }
+        editSshApproveModal.classList.add("hidden");
+        currentEditingSshRequestId = null;
+        refreshSshData();
+      } catch (err) {
+        alert("Approval failed: " + err.message);
+      } finally {
+        editSshConfirmBtn.disabled = false;
+        editSshConfirmBtn.textContent = "Sign & Approve with OpenBao";
       }
     });
   }

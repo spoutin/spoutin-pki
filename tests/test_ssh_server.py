@@ -117,3 +117,32 @@ def test_admin_ssh_requests_and_approval(client, admin_cookie):
     # Revoke cert
     resp_rev = client.post(f"/api/admin/ssh/certificates/555123/revoke", cookies=admin_cookie)
     assert resp_rev.status_code == 200
+
+
+def test_admin_ssh_edit_and_approve(client, admin_cookie):
+    # Create request with username "guest"
+    client.post("/api/ssh/request", json={
+        "name": "Custom User",
+        "username": "guest",
+        "device_name": "Generic PC",
+        "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBXtest3 guest@pc",
+    })
+
+    requests = client.get("/api/admin/ssh/requests", cookies=admin_cookie).json()
+    req = next(r for r in requests if r["username"] == "guest")
+
+    # Admin changes key_id to "operator", principals to ["operator"], ttl to "24h"
+    resp_app = client.post(
+        f"/api/admin/ssh/requests/{req['request_id']}/approve",
+        json={
+            "key_id": "operator",
+            "device_name": "Workstation Operator",
+            "principals": ["operator"],
+            "ttl": "24h",
+        },
+        cookies=admin_cookie,
+    )
+    assert resp_app.status_code == 200
+    data = resp_app.json()
+    assert data["key_id"] == "operator"
+    assert data["principals"] == ["operator"]

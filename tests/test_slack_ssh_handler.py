@@ -53,14 +53,26 @@ def test_send_ssh_request_notification(mock_handler):
 
 
 def test_ssh_quick_approve_action(mock_handler):
-    # Find registered action handler for ssh_quick_approve
-    action_calls = mock_handler.app.action.call_args_list
-    ssh_approve_fn = None
-    for call in action_calls:
-        if call[0][0] == "ssh_quick_approve":
-            # The decorator wraps the function
-            pass
-
-    # Verify action decorator was called
+    # Verify action decorators were called
     mock_handler.app.action.assert_any_call("ssh_quick_approve")
+    mock_handler.app.action.assert_any_call("ssh_open_edit_modal")
     mock_handler.app.action.assert_any_call("ssh_reject")
+    mock_handler.app.view.assert_any_call("submit_ssh_edit_approval")
+
+
+def test_build_ssh_edit_modal(mock_handler):
+    req = {
+        "request_id": "ssh-req-123",
+        "username": "ablack",
+        "device_name": "MacBook",
+        "principals": "ablack,root,operator",
+        "requested_ttl": "70080h",
+    }
+    modal = mock_handler.build_ssh_edit_modal(req)
+    assert modal["type"] == "modal"
+    assert modal["callback_id"] == "submit_ssh_edit_approval"
+    block_ids = [b["block_id"] for b in modal["blocks"]]
+    assert "key_id_block" in block_ids
+    assert "device_name_block" in block_ids
+    assert "principals_block" in block_ids
+    assert "ttl_block" in block_ids
