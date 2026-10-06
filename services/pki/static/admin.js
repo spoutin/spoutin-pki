@@ -203,6 +203,7 @@
   async function init() {
     updateSortHeaders();
     await fetchProfile();
+    await loadAdminSshConfig();
     const [, pendingList] = await Promise.all([
       refreshStats(),
       refreshRequests(),
@@ -839,6 +840,62 @@
     }
   }
 
+  let cachedAllowedPrincipals = ["ablack", "operator", "root"];
+
+  async function loadAdminSshConfig() {
+    try {
+      const resp = await adminFetch("/api/ssh/config");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      cachedAllowedPrincipals = data.allowed_principals || ["ablack", "operator", "root"];
+      renderQsPrincipals(data.default_principals || ["ablack", "root", "operator"]);
+    } catch (e) {
+      console.error("Failed to load SSH config in admin", e);
+    }
+  }
+
+  function renderQsPrincipals(selectedList) {
+    const group = document.getElementById("qs-principals-group");
+    if (!group) return;
+    group.innerHTML = "";
+    cachedAllowedPrincipals.forEach(p => {
+      const isChecked = selectedList.includes(p);
+      const label = document.createElement("label");
+      label.style.display = "inline-flex";
+      label.style.alignItems = "center";
+      label.style.gap = "0.3rem";
+      label.style.background = "var(--bg)";
+      label.style.border = "1px solid var(--border)";
+      label.style.padding = "0.25rem 0.5rem";
+      label.style.borderRadius = "6px";
+      label.style.fontSize = "0.8rem";
+      label.style.cursor = "pointer";
+      label.innerHTML = `<input type="checkbox" name="qs_principals" value="${p}" ${isChecked ? "checked" : ""}> <code>${p}</code>`;
+      group.appendChild(label);
+    });
+  }
+
+  function renderEditModalPrincipals(selectedList) {
+    const group = document.getElementById("edit-ssh-principals-group");
+    if (!group) return;
+    group.innerHTML = "";
+    cachedAllowedPrincipals.forEach(p => {
+      const isChecked = selectedList.includes(p);
+      const label = document.createElement("label");
+      label.style.display = "inline-flex";
+      label.style.alignItems = "center";
+      label.style.gap = "0.3rem";
+      label.style.background = "var(--bg)";
+      label.style.border = "1px solid var(--border)";
+      label.style.padding = "0.25rem 0.5rem";
+      label.style.borderRadius = "6px";
+      label.style.fontSize = "0.8rem";
+      label.style.cursor = "pointer";
+      label.innerHTML = `<input type="checkbox" name="edit_modal_principals" value="${p}" ${isChecked ? "checked" : ""}> <code>${p}</code>`;
+      group.appendChild(label);
+    });
+  }
+
   if (qsFileUpload) {
     qsFileUpload.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -864,12 +921,17 @@
     adminQuickSignForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const keyId = document.getElementById("qs-key-id").value.trim();
-      const principals = document.getElementById("qs-principals").value.split(",").map(p => p.trim()).filter(Boolean);
+      const principals = Array.from(document.querySelectorAll('input[name="qs_principals"]:checked')).map(cb => cb.value);
       const publicKey = document.getElementById("qs-public-key").value.trim();
       const ttl = document.getElementById("qs-ttl").value.trim();
       const keyFilename = (qsKeyFilenameInput ? qsKeyFilenameInput.value.trim() : "") || "id_ed25519";
       currentQuickSignFilename = keyFilename;
       const submitBtn = document.getElementById("btn-quick-sign");
+
+      if (principals.length === 0) {
+        alert("Please select at least one authorized principal.");
+        return;
+      }
 
       submitBtn.disabled = true;
       submitBtn.textContent = "Signing with OpenBao...";
@@ -935,7 +997,8 @@
         if (editSshKeyFilenameInput) {
           editSshKeyFilenameInput.value = req.key_filename || "id_ed25519";
         }
-        editSshPrincipalsInput.value = req.principals || "ablack,root,operator";
+        const reqPrincipals = (req.principals || "ablack,root,operator").split(",").map(p => p.trim()).filter(Boolean);
+        renderEditModalPrincipals(reqPrincipals);
         editSshTtlInput.value = req.requested_ttl || "70080h";
         editSshApproveModal.classList.remove("hidden");
         return;
@@ -982,8 +1045,13 @@
       const keyId = editSshKeyIdInput.value.trim();
       const deviceName = editSshDeviceInput.value.trim();
       const keyFilename = (editSshKeyFilenameInput ? editSshKeyFilenameInput.value.trim() : "") || "id_ed25519";
-      const principals = editSshPrincipalsInput.value.split(",").map(p => p.trim()).filter(Boolean);
+      const principals = Array.from(document.querySelectorAll('input[name="edit_modal_principals"]:checked')).map(cb => cb.value);
       const ttl = editSshTtlInput.value.trim();
+
+      if (principals.length === 0) {
+        alert("Please select at least one authorized principal.");
+        return;
+      }
 
       editSshConfirmBtn.disabled = true;
       editSshConfirmBtn.textContent = "Signing with OpenBao...";

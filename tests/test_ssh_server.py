@@ -49,6 +49,14 @@ def test_get_ssh_ca_pub(client):
     assert resp.headers["content-type"].startswith("text/plain")
 
 
+def test_get_ssh_config(client):
+    resp = client.get("/api/ssh/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "allowed_principals" in data
+    assert "ablack" in data["allowed_principals"]
+
+
 def test_public_ssh_request_and_status(client):
     # 1. Submit request
     resp = client.post("/api/ssh/request", json={

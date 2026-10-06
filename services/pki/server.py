@@ -363,6 +363,16 @@ def create_app(
             logger.error(f"Failed to fetch SSH CA public key: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to retrieve SSH CA public key")
 
+    @app.get("/api/ssh/config")
+    def get_ssh_config_endpoint():
+        """Returns allowed and default SSH principals configured for this portal."""
+        configured = getattr(settings, "SSH_ALLOWED_PRINCIPALS", "ablack,operator,root")
+        principals = [p.strip() for p in configured.split(",") if p.strip()]
+        return {
+            "allowed_principals": principals,
+            "default_principals": ["ablack", "root", "operator"] if "ablack" in principals else principals,
+        }
+
     @app.post("/api/ssh/request")
     def submit_ssh_request(body: SshEnrollmentRequest):
         principals = body.principals or ([body.username, "root", "operator"] if body.username == "ablack" else [body.username, "operator"])

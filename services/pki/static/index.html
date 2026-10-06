@@ -125,16 +125,33 @@
         <!-- SSH Request Form -->
         <div id="ssh-form-view">
           <form id="ssh-enroll-form">
-            <!-- Helper box for existing keys -->
-            <div style="margin-bottom: 1.25rem; padding: 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
-              <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">Using an Existing SSH Key?</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                Click to copy command to read your existing public key:
+            <!-- Mode Switcher: Existing Key vs Generate Key -->
+            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; background: var(--bg); padding: 0.25rem; border-radius: 8px; border: 1px solid var(--border);">
+              <button type="button" id="mode-existing-key-btn" class="portal-tab-btn active" style="flex: 1; padding: 0.45rem; font-size: 0.8rem;">📁 Use Existing SSH Key</button>
+              <button type="button" id="mode-generate-key-btn" class="portal-tab-btn" style="flex: 1; padding: 0.45rem; font-size: 0.8rem;">⚡ Generate Key for Me</button>
+            </div>
+
+            <!-- Existing Key Dropzone / File Picker -->
+            <div id="ssh-dropzone" style="margin-bottom: 1.25rem; padding: 1.25rem 1rem; border: 2px dashed var(--border); border-radius: 10px; text-align: center; background: var(--bg); cursor: pointer; transition: all 0.2s;">
+              <div style="font-size: 1.75rem; margin-bottom: 0.25rem;">📄</div>
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">Drop your .pub file here or click to browse</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Select your <code>id_ed25519.pub</code>, <code>id_rsa_spoutin.pub</code>, etc.
               </div>
-              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button type="button" id="copy-ed25519-cmd" style="font-size: 0.75rem; padding: 0.35rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); cursor: pointer; border-radius: 6px;">🍏 pbcopy &lt; ~/.ssh/id_ed25519.pub</button>
-                <button type="button" id="copy-rsa-cmd" style="font-size: 0.75rem; padding: 0.35rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); cursor: pointer; border-radius: 6px;">🔑 pbcopy &lt; ~/.ssh/id_rsa_spoutin.pub</button>
+              <div style="font-size: 0.75rem; color: var(--primary); margin-top: 0.4rem; font-weight: 500;">
+                💡 Mac Tip: Press <kbd style="background: var(--card-bg); border: 1px solid var(--border); padding: 1px 4px; border-radius: 4px;">Cmd+Shift+G</kbd> in file dialog and enter <code>~/.ssh</code>
               </div>
+              <input type="file" id="ssh_file_upload" accept=".pub" style="display: none;">
+            </div>
+
+            <!-- In-Browser Key Generator Box -->
+            <div id="ssh-generator-box" class="hidden" style="margin-bottom: 1.25rem; padding: 1rem; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 10px;">
+              <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; color: var(--primary);">Secure Client-Side Key Generation</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
+                A new ED25519 key will be generated securely inside your browser using WebCrypto. Your private key stays on your machine and is never sent to the server.
+              </div>
+              <button type="button" id="btn-generate-in-browser" class="btn" style="padding: 0.55rem; font-size: 0.85rem;">⚡ Generate &amp; Download Private Key</button>
+              <div id="gen-key-status" class="hidden" style="font-size: 0.8rem; margin-top: 0.5rem; color: #10b981; font-weight: 600;"></div>
             </div>
 
             <div class="form-group">
@@ -143,9 +160,18 @@
             </div>
 
             <div class="form-group">
-              <label for="ssh_username">Requested Username (Key ID)</label>
-              <input type="text" id="ssh_username" name="username" placeholder="e.g. ablack or operator" required autocomplete="off" autocorrect="off" autocapitalize="none">
-              <div class="hint">Allowed principals default to: <code>ablack, root, operator</code> for ablack; <code>operator</code> for others.</div>
+              <label for="ssh_username">Key ID / Identity</label>
+              <input type="text" id="ssh_username" name="username" value="ablack" required autocomplete="off" autocorrect="off" autocapitalize="none">
+              <div class="hint">The identity that will be stamped on your certificate and logged by servers.</div>
+            </div>
+
+            <!-- Multi-Select Principals Selector -->
+            <div class="form-group">
+              <label>Requested Principals / Unix Accounts</label>
+              <div id="principals-checkbox-group" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                <!-- Populated dynamically from /api/ssh/config -->
+              </div>
+              <div class="hint">Select the Unix accounts you are requesting access to on servers.</div>
             </div>
 
             <div class="form-group">
@@ -154,13 +180,8 @@
             </div>
 
             <div class="form-group">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                <label for="ssh_public_key" style="margin-bottom: 0;">OpenSSH Public Key</label>
-                <label for="ssh_file_upload" style="font-size: 0.8rem; color: var(--primary); cursor: pointer; font-weight: 600;">📁 Upload .pub File</label>
-                <input type="file" id="ssh_file_upload" accept=".pub" style="display: none;">
-              </div>
-              <textarea id="ssh_public_key" name="public_key" rows="4" placeholder="Paste your public key here (ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...)" required style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main);"></textarea>
-              <div class="hint">Or drag-and-drop your <code>.pub</code> file above. Private key never leaves your computer!</div>
+              <label for="ssh_public_key">OpenSSH Public Key</label>
+              <textarea id="ssh_public_key" name="public_key" rows="3" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5..." required style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main);"></textarea>
             </div>
 
             <div class="form-group">

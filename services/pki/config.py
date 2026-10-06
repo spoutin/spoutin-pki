@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     OPENBAO_SSH_ADMIN_ROLE: str = "admin-user"
     OPENBAO_SSH_OPERATOR_ROLE: str = "operator-user"
     OPENBAO_VERIFY_SSL: bool = True
+    SSH_ALLOWED_PRINCIPALS: str = "ablack,operator,root"
 
     # Infisical PKI API (Self-Hosted or Cloud)
     INFISICAL_URL: str = "https://secrets.int.spoutin.org"

@@ -402,8 +402,14 @@
     if (view) view.classList.remove("hidden");
   }
 
-  const copyEd25519Cmd = document.getElementById("copy-ed25519-cmd");
-  const copyRsaCmd = document.getElementById("copy-rsa-cmd");
+  const modeExistingKeyBtn = document.getElementById("mode-existing-key-btn");
+  const modeGenerateKeyBtn = document.getElementById("mode-generate-key-btn");
+  const sshDropzone = document.getElementById("ssh-dropzone");
+  const sshGeneratorBox = document.getElementById("ssh-generator-box");
+  const btnGenerateInBrowser = document.getElementById("btn-generate-in-browser");
+  const genKeyStatus = document.getElementById("gen-key-status");
+  const principalsCheckboxGroup = document.getElementById("principals-checkbox-group");
+
   const sshFileUpload = document.getElementById("ssh_file_upload");
   const sshKeyFilenameInput = document.getElementById("ssh_key_filename");
   const downloadCertLabel = document.getElementById("download-cert-label");
@@ -412,41 +418,174 @@
 
   let currentApprovedKeyFilename = "id_ed25519";
 
-  if (copyEd25519Cmd) {
-    copyEd25519Cmd.addEventListener("click", () => {
-      navigator.clipboard.writeText("pbcopy < ~/.ssh/id_ed25519.pub").then(() => {
-        copyEd25519Cmd.textContent = "✅ Copied Command!";
-        setTimeout(() => { copyEd25519Cmd.textContent = "🍏 pbcopy < ~/.ssh/id_ed25519.pub"; }, 2000);
-      });
+  // Mode Switcher (Existing Key vs Generate Key)
+  if (modeExistingKeyBtn && modeGenerateKeyBtn) {
+    modeExistingKeyBtn.addEventListener("click", () => {
+      modeExistingKeyBtn.classList.add("active");
+      modeGenerateKeyBtn.classList.remove("active");
+      if (sshDropzone) sshDropzone.classList.remove("hidden");
+      if (sshGeneratorBox) sshGeneratorBox.classList.add("hidden");
+    });
+    modeGenerateKeyBtn.addEventListener("click", () => {
+      modeGenerateKeyBtn.classList.add("active");
+      modeExistingKeyBtn.classList.remove("active");
+      if (sshDropzone) sshDropzone.classList.add("hidden");
+      if (sshGeneratorBox) sshGeneratorBox.classList.remove("hidden");
     });
   }
 
-  if (copyRsaCmd) {
-    copyRsaCmd.addEventListener("click", () => {
-      navigator.clipboard.writeText("pbcopy < ~/.ssh/id_rsa_spoutin.pub").then(() => {
-        copyRsaCmd.textContent = "✅ Copied Command!";
-        setTimeout(() => { copyRsaCmd.textContent = "🔑 pbcopy < ~/.ssh/id_rsa_spoutin.pub"; }, 2000);
+  // Load configured SSH Principals from server
+  async function loadSshConfig() {
+    if (!principalsCheckboxGroup) return;
+    try {
+      const resp = await fetch("/api/ssh/config");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      principalsCheckboxGroup.innerHTML = "";
+      const allowed = data.allowed_principals || ["ablack", "operator", "root"];
+      const defaults = data.default_principals || ["ablack", "root", "operator"];
+      allowed.forEach(p => {
+        const isChecked = defaults.includes(p);
+        const label = document.createElement("label");
+        label.style.display = "inline-flex";
+        label.style.alignItems = "center";
+        label.style.gap = "0.35rem";
+        label.style.background = "var(--card-bg)";
+        label.style.border = "1px solid var(--border)";
+        label.style.padding = "0.35rem 0.65rem";
+        label.style.borderRadius = "6px";
+        label.style.fontSize = "0.85rem";
+        label.style.cursor = "pointer";
+        label.innerHTML = `<input type="checkbox" name="principals" value="${p}" ${isChecked ? "checked" : ""}> <code>${p}</code>`;
+        principalsCheckboxGroup.appendChild(label);
       });
-    });
+    } catch (e) {
+      console.error("Failed to load SSH config", e);
+    }
+  }
+  loadSshConfig();
+
+  function handleFileSelect(file) {
+    if (!file) return;
+    let baseName = file.name;
+    if (baseName.endsWith(".pub")) {
+      baseName = baseName.substring(0, baseName.length - 4);
+    }
+    if (sshKeyFilenameInput) {
+      sshKeyFilenameInput.value = baseName;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const keyArea = document.getElementById("ssh_public_key");
+      if (keyArea) keyArea.value = evt.target.result.trim();
+    };
+    reader.readAsText(file);
   }
 
+  // File Upload & Dropzone
   if (sshFileUpload) {
     sshFileUpload.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      let baseName = file.name;
-      if (baseName.endsWith(".pub")) {
-        baseName = baseName.substring(0, baseName.length - 4);
+      handleFileSelect(e.target.files[0]);
+    });
+  }
+
+  if (sshDropzone && sshFileUpload) {
+    sshDropzone.addEventListener("click", () => sshFileUpload.click());
+    sshDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      sshDropzone.style.borderColor = "var(--primary)";
+      sshDropzone.style.background = "rgba(37, 99, 235, 0.04)";
+    });
+    sshDropzone.addEventListener("dragleave", () => {
+      sshDropzone.style.borderColor = "var(--border)";
+      sshDropzone.style.background = "var(--bg)";
+    });
+    sshDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      sshDropzone.style.borderColor = "var(--border)";
+      sshDropzone.style.background = "var(--bg)";
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleFileSelect(e.dataTransfer.files[0]);
       }
-      if (sshKeyFilenameInput) {
-        sshKeyFilenameInput.value = baseName;
-      }
-      const reader = new FileReader();
-      reader.onload = (evt) => {
+    });
+  }
+
+  // WebCrypto In-Browser Ed25519 Key Generation
+  function arrayBufferToBase64(buffer) {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+  }
+
+  function buildOpenSshEd25519PublicKey(rawPubKeyBytes) {
+    const keyType = new TextEncoder().encode("ssh-ed25519");
+    const totalLen = 4 + keyType.length + 4 + rawPubKeyBytes.length;
+    const buffer = new Uint8Array(totalLen);
+    const view = new DataView(buffer.buffer);
+    let offset = 0;
+    view.setUint32(offset, keyType.length);
+    offset += 4;
+    buffer.set(keyType, offset);
+    offset += keyType.length;
+    view.setUint32(offset, rawPubKeyBytes.length);
+    offset += 4;
+    buffer.set(rawPubKeyBytes, offset);
+    return `ssh-ed25519 ${arrayBufferToBase64(buffer.buffer)} generated-key@spoutin-pki`;
+  }
+
+  function formatPkcs8ToPem(pkcs8Buffer) {
+    const b64 = arrayBufferToBase64(pkcs8Buffer);
+    const lines = b64.match(/.{1,64}/g) || [];
+    return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----\n`;
+  }
+
+  if (btnGenerateInBrowser) {
+    btnGenerateInBrowser.addEventListener("click", async () => {
+      btnGenerateInBrowser.disabled = true;
+      btnGenerateInBrowser.textContent = "Generating Ed25519 Key...";
+      try {
+        if (!window.crypto || !window.crypto.subtle) {
+          throw new Error("WebCrypto API is not supported in this browser. Please paste a key from terminal.");
+        }
+        const keyPair = await window.crypto.subtle.generateKey(
+          { name: "Ed25519" },
+          true,
+          ["sign", "verify"]
+        );
+        const rawPub = new Uint8Array(await window.crypto.subtle.exportKey("raw", keyPair.publicKey));
+        const sshPub = buildOpenSshEd25519PublicKey(rawPub);
+        const pkcs8 = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+        const pemPrivate = formatPkcs8ToPem(pkcs8);
+
+        // Download private key automatically
+        const blob = new Blob([pemPrivate], { type: "application/x-pem-file" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "id_ed25519";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Populate form
         const keyArea = document.getElementById("ssh_public_key");
-        if (keyArea) keyArea.value = evt.target.result.trim();
-      };
-      reader.readAsText(file);
+        if (keyArea) keyArea.value = sshPub;
+        if (sshKeyFilenameInput) sshKeyFilenameInput.value = "id_ed25519";
+
+        if (genKeyStatus) {
+          genKeyStatus.textContent = "✅ Private key downloaded! Saved as ~/.ssh/id_ed25519";
+          genKeyStatus.classList.remove("hidden");
+        }
+      } catch (err) {
+        alert("In-browser key generation failed: " + err.message + "\nYou can generate a key in terminal using: ssh-keygen -t ed25519");
+      } finally {
+        btnGenerateInBrowser.disabled = false;
+        btnGenerateInBrowser.textContent = "⚡ Generate & Download Private Key";
+      }
     });
   }
 
@@ -459,6 +598,7 @@
       const deviceName = document.getElementById("ssh_device_name").value.trim();
       const publicKey = document.getElementById("ssh_public_key").value.trim();
       const keyFilename = (sshKeyFilenameInput ? sshKeyFilenameInput.value.trim() : "") || "id_ed25519";
+      const selectedPrincipals = Array.from(document.querySelectorAll('#principals-checkbox-group input[name="principals"]:checked')).map(cb => cb.value);
 
       if (!publicKey.startsWith("ssh-") && !publicKey.startsWith("ecdsa-")) {
         sshFormError.textContent = "Invalid public key format. Must start with ssh-ed25519, ssh-rsa, etc.";
@@ -470,7 +610,14 @@
         const resp = await fetch("/api/ssh/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, username, device_name: deviceName, public_key: publicKey, key_filename: keyFilename }),
+          body: JSON.stringify({
+            name,
+            username,
+            device_name: deviceName,
+            public_key: publicKey,
+            key_filename: keyFilename,
+            principals: selectedPrincipals.length > 0 ? selectedPrincipals : undefined,
+          }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
