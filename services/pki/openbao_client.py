@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import requests
 import urllib3
