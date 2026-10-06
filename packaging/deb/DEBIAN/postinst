@@ -33,6 +33,16 @@ if [ ! -f /opt/pki/data/inventory.db ]; then
     fi
 fi
 
+# 3. Clean up legacy wifi-enrollment directories if migrated
+if [ -d /opt/wifi-enrollment ]; then
+    echo "Removing legacy /opt/wifi-enrollment directory..."
+    rm -rf /opt/wifi-enrollment
+fi
+if [ -d /etc/wifi-enrollment ]; then
+    echo "Removing legacy /etc/wifi-enrollment directory..."
+    rm -rf /etc/wifi-enrollment
+fi
+
 # Link config.env to service directory
 ln -sf /etc/pki/config.env /opt/pki/config.env
 ln -sf /etc/pki/config.env /opt/pki/.env
