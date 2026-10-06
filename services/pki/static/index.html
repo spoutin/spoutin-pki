@@ -183,7 +183,9 @@
             <div class="form-group">
               <label for="ssh_key_filename">Local Key Filename</label>
               <input type="text" id="ssh_key_filename" name="key_filename" value="id_ed25519" placeholder="e.g. id_ed25519 or id_rsa" required autocomplete="off">
-              <div class="hint">The downloaded certificate will be named <code>&lt;filename&gt;-cert.pub</code> so OpenSSH pairs it with your private key automatically.</div>
+              <div class="hint" style="line-height: 1.4;">
+                <strong>Why this must match:</strong> OpenSSH automatically attaches your certificate only when it shares the exact same base filename as your private key (e.g. <code>~/.ssh/id_ed25519</code> and <code>~/.ssh/id_ed25519-cert.pub</code>). This is auto-filled when you upload a file.
+              </div>
             </div>
 
             <div id="ssh-form-error" class="banner banner-error hidden"></div>

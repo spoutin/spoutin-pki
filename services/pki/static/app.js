@@ -507,6 +507,14 @@
   }
   loadSshConfig();
 
+  function detectKeyFilenameFromKey(keyText) {
+    const text = keyText.trim();
+    if (text.startsWith("ssh-ed25519")) return "id_ed25519";
+    if (text.startsWith("ssh-rsa")) return "id_rsa";
+    if (text.startsWith("ecdsa-sha2-")) return "id_ecdsa";
+    return null;
+  }
+
   function handleFileSelect(file) {
     if (!file) return;
     let baseName = file.name;
@@ -531,9 +539,16 @@
     });
   }
 
-  // Textarea Drag & Drop
+  // Textarea Drag & Drop and Paste Auto-fill
   const sshPublicKeyArea = document.getElementById("ssh_public_key");
   if (sshPublicKeyArea) {
+    sshPublicKeyArea.addEventListener("input", () => {
+      const detected = detectKeyFilenameFromKey(sshPublicKeyArea.value);
+      if (detected && sshKeyFilenameInput && (!sshKeyFilenameInput.value || sshKeyFilenameInput.value === "id_ed25519" || sshKeyFilenameInput.value === "id_rsa")) {
+        sshKeyFilenameInput.value = detected;
+      }
+    });
+
     sshPublicKeyArea.addEventListener("dragover", (e) => {
       e.preventDefault();
       sshPublicKeyArea.style.borderColor = "var(--primary)";

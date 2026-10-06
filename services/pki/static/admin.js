@@ -916,6 +916,48 @@
     });
   }
 
+  const qsPublicKeyArea = document.getElementById("qs-public-key");
+  if (qsPublicKeyArea) {
+    qsPublicKeyArea.addEventListener("input", () => {
+      const text = qsPublicKeyArea.value.trim();
+      let detected = null;
+      if (text.startsWith("ssh-ed25519")) detected = "id_ed25519";
+      else if (text.startsWith("ssh-rsa")) detected = "id_rsa";
+      else if (text.startsWith("ecdsa-sha2-")) detected = "id_ecdsa";
+      if (detected && qsKeyFilenameInput && (!qsKeyFilenameInput.value || qsKeyFilenameInput.value === "id_ed25519" || qsKeyFilenameInput.value === "id_rsa")) {
+        qsKeyFilenameInput.value = detected;
+      }
+    });
+
+    qsPublicKeyArea.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      qsPublicKeyArea.style.borderColor = "var(--primary)";
+      qsPublicKeyArea.style.background = "rgba(37, 99, 235, 0.05)";
+    });
+    qsPublicKeyArea.addEventListener("dragleave", () => {
+      qsPublicKeyArea.style.borderColor = "var(--border)";
+      qsPublicKeyArea.style.background = "var(--bg)";
+    });
+    qsPublicKeyArea.addEventListener("drop", (e) => {
+      e.preventDefault();
+      qsPublicKeyArea.style.borderColor = "var(--border)";
+      qsPublicKeyArea.style.background = "var(--bg)";
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        let baseName = file.name;
+        if (baseName.endsWith(".pub")) {
+          baseName = baseName.substring(0, baseName.length - 4);
+        }
+        if (qsKeyFilenameInput) qsKeyFilenameInput.value = baseName;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          qsPublicKeyArea.value = evt.target.result.trim();
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+
   // Quick Sign Form submit
   if (adminQuickSignForm) {
     adminQuickSignForm.addEventListener("submit", async (e) => {
