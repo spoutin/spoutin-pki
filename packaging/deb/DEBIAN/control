@@ -1,10 +1,13 @@
-Package: wifi-enrollment
-Version: 0.2.22
+Package: pki
+Version: 0.3.0
 Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Adam Black <adam@spoutin.org>
 Depends: curl, ca-certificates
-Description: Spoutin Wi-Fi EAP-TLS Enrollment Portal and Admin Dashboard
- Automated 802.1X device enrollment portal with Slack approvals,
- Infisical / step-ca PKI integration, and FreeRADIUS dynamic VLANs.
+Replaces: wifi-enrollment (<< 0.3.0)
+Conflicts: wifi-enrollment (<< 0.3.0)
+Provides: wifi-enrollment
+Description: Spoutin PKI Certificate Portal & OpenSSH CA
+ Unified X.509 (802.1X Wi-Fi) and OpenSSH Certificate Authority portal
+ with OpenBao backend and Slack approval workflows.

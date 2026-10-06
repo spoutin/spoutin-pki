@@ -2,162 +2,40 @@
 set -e
 
 # Directory setup and permissions
-mkdir -p /etc/wifi-enrollment /opt/wifi-enrollment/data
+mkdir -p /etc/pki /opt/pki/data
 
-# Set up config.env configuration
-if [ ! -f /etc/wifi-enrollment/config.env ]; then
-    if [ -f /etc/wifi-enrollment/.env ]; then
-        echo "Migrating existing /etc/wifi-enrollment/.env to /etc/wifi-enrollment/config.env..."
-        cp /etc/wifi-enrollment/.env /etc/wifi-enrollment/config.env
-        chmod 600 /etc/wifi-enrollment/config.env
+# 1. Set up /etc/pki/config.env configuration with auto-migration from legacy wifi-enrollment
+if [ ! -f /etc/pki/config.env ]; then
+    if [ -f /etc/wifi-enrollment/config.env ]; then
+        echo "Migrating existing /etc/wifi-enrollment/config.env to /etc/pki/config.env..."
+        cp /etc/wifi-enrollment/config.env /etc/pki/config.env
+        chmod 600 /etc/pki/config.env
+    elif [ -f /etc/wifi-enrollment/.env ]; then
+        echo "Migrating existing /etc/wifi-enrollment/.env to /etc/pki/config.env..."
+        cp /etc/wifi-enrollment/.env /etc/pki/config.env
+        chmod 600 /etc/pki/config.env
     else
-        echo "Creating default /etc/wifi-enrollment/config.env configuration..."
-        if [ -f /opt/wifi-enrollment/config.env.example ]; then
-            cp /opt/wifi-enrollment/config.env.example /etc/wifi-enrollment/config.env
+        echo "Creating default /etc/pki/config.env configuration..."
+        if [ -f /opt/pki/config.env.example ]; then
+            cp /opt/pki/config.env.example /etc/pki/config.env
         else
-            cp /opt/wifi-enrollment/.env.example /etc/wifi-enrollment/config.env
+            cp /opt/pki/.env.example /etc/pki/config.env
         fi
-        chmod 600 /etc/wifi-enrollment/config.env
+        chmod 600 /etc/pki/config.env
     fi
 fi
 
-# Link config.env and .env to service directory
-ln -sf /etc/wifi-enrollment/config.env /opt/wifi-enrollment/config.env
-ln -sf /etc/wifi-enrollment/config.env /opt/wifi-enrollment/.env
-if [ ! -f /etc/wifi-enrollment/.env ]; then
-    ln -sf /etc/wifi-enrollment/config.env /etc/wifi-enrollment/.env
-fi
-
-# Check and auto-configure step-ca ca.json and certificate templates for CRL support
-STEP_CA_JSON="/etc/step-ca/config/ca.json"
-if [ -f "$STEP_CA_JSON" ] || [ -d "/etc/step-ca" ]; then
-    rm -f /tmp/step_ca_needs_restart
-    python3 - << 'EOF' || true
-import json, os, sys
-
-need_restart = False
-ca_path = "/etc/step-ca/config/ca.json"
-primary_template = "/etc/step-ca/templates/certs/eap-client.json"
-
-full_template_content = '''{
-  "subject": {{ toJson .Subject }},
-  "sans": {{ toJson .SANs }},
-  "keyUsage": ["digitalSignature", "keyEncipherment"],
-  "extKeyUsage": ["clientAuth"],
-  "crlDistributionPoints": [
-    "https://step-ca.int.spoutin.org/1.0/crl",
-    "https://wifi.int.spoutin.org/crl.pem"
-  ]
-}
-'''
-
-crl_block = '''  "crlDistributionPoints": [
-    "https://step-ca.int.spoutin.org/1.0/crl",
-    "https://wifi.int.spoutin.org/crl.pem"
-  ]'''
-
-template_paths = {
-    primary_template,
-    "/etc/step-ca/templates/eap-client.json",
-}
-
-# 1. Ensure primary template directory and file exist with CRLDP
-os.makedirs(os.path.dirname(primary_template), exist_ok=True)
-if not os.path.exists(primary_template):
-    print(f"Creating default {primary_template} with crlDistributionPoints...")
-    with open(primary_template, "w", encoding="utf-8") as f:
-        f.write(full_template_content)
-    os.chmod(primary_template, 0o644)
-    need_restart = True
-
-# 2. Check ca.json for CRL config, disable enableAdmin (forces reading ca.json), and wire provisioners
-if os.path.exists(ca_path):
-    try:
-        with open(ca_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        ca_changed = False
-
-        # Ensure enableAdmin is false so step-ca loads provisioners and templates from ca.json
-        authority = data.setdefault("authority", {})
-        if authority.get("enableAdmin") is not False:
-            print("Configuring 'authority.enableAdmin: false' so step-ca honors ca.json provisioner templates...")
-            authority["enableAdmin"] = False
-            ca_changed = True
-
-        crl = data.get("crl")
-        if not isinstance(crl, dict) or not crl.get("enabled"):
-            print("Configuring 'crl.enabled: true' in /etc/step-ca/config/ca.json...")
-            data["crl"] = {
-                "enabled": True,
-                "generateOnRevoke": True,
-                "cacheDuration": "24h"
-            }
-            ca_changed = True
-
-        for p in authority.get("provisioners", []):
-            if p.get("type", "").lower() == "jwk" or p.get("name") == "admin@int.spoutin.org":
-                opt = p.setdefault("options", {}).setdefault("x509", {})
-                current_tf = opt.get("templateFile")
-                if not current_tf:
-                    print(f"Wiring provisioner '{p.get('name')}' to template {primary_template} in ca.json...")
-                    opt["templateFile"] = primary_template
-                    ca_changed = True
-                else:
-                    template_paths.add(current_tf)
-
-        if ca_changed:
-            with open(ca_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-                f.write("\n")
-            print("Saved updated ca.json.")
-            need_restart = True
-    except Exception as e:
-        print(f"Notice: Could not inspect ca.json: {e}")
-
-# 3. Ensure all referenced template files have crlDistributionPoints and 0644 permissions
-for tp in template_paths:
-    if os.path.isfile(tp):
-        try:
-            with open(tp, "r", encoding="utf-8") as f:
-                content = f.read()
-            if "crlDistributionPoints" not in content:
-                print(f"Adding crlDistributionPoints to template {tp}...")
-                idx = content.rfind("}")
-                if idx != -1:
-                    prefix = content[:idx].rstrip()
-                    if not prefix.endswith(","):
-                        prefix += ","
-                    new_content = f"{prefix}\n{crl_block}\n{content[idx:]}"
-                    with open(tp, "w", encoding="utf-8") as f:
-                        f.write(new_content)
-                    print(f"Updated {tp} with crlDistributionPoints.")
-                    need_restart = True
-            os.chmod(tp, 0o644)
-        except Exception as e:
-            print(f"Notice: Could not update template {tp}: {e}")
-
-if need_restart:
-    try:
-        with open("/tmp/step_ca_needs_restart", "w") as f:
-            f.write("1\n")
-    except Exception:
-        pass
-EOF
-
-    # Ensure step-ca user has ownership of templates directory if step user exists
-    if getent passwd step >/dev/null 2>&1; then
-        chown -R step:step /etc/step-ca/templates 2>/dev/null || true
-    fi
-
-    if [ -f /tmp/step_ca_needs_restart ]; then
-        rm -f /tmp/step_ca_needs_restart
-        if command -v systemctl >/dev/null 2>&1; then
-            echo "Restarting step-ca to apply CRL and template changes..."
-            systemctl restart step-ca || true
-        fi
+# 2. Migrate existing SQLite database if present
+if [ ! -f /opt/pki/data/inventory.db ]; then
+    if [ -f /opt/wifi-enrollment/data/inventory.db ]; then
+        echo "Migrating SQLite inventory database from /opt/wifi-enrollment to /opt/pki..."
+        cp -a /opt/wifi-enrollment/data/inventory.db /opt/pki/data/inventory.db
     fi
 fi
+
+# Link config.env to service directory
+ln -sf /etc/pki/config.env /opt/pki/config.env
+ln -sf /etc/pki/config.env /opt/pki/.env
 
 # Install uv package manager if missing
 if ! command -v uv >/dev/null 2>&1 && [ ! -x /usr/local/bin/uv ]; then
@@ -167,35 +45,23 @@ fi
 
 UV_BIN=$(command -v uv || echo "/usr/local/bin/uv")
 
-# Sync Python virtual environment in /opt/wifi-enrollment
-echo "Syncing Python dependencies for wifi-enrollment..."
-cd /opt/wifi-enrollment
+# Sync Python virtual environment in /opt/pki
+echo "Syncing Python dependencies for pki in /opt/pki..."
+cd /opt/pki
 touch README.md
 "$UV_BIN" sync --frozen --no-dev || "$UV_BIN" sync --no-dev
 
-# Reload systemd
+# Reload systemd and enable pki.service
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
-    echo "Enabling systemd service for wifi-enrollment..."
-    systemctl enable wifi-enrollment.service || true
+    echo "Enabling and starting pki.service..."
+    systemctl enable pki.service || true
+    systemctl restart pki.service || systemctl start pki.service || true
 
-    # Automatically restart service on package upgrade so it stays active
-    if systemctl is-enabled --quiet step-ca 2>/dev/null || systemctl is-active --quiet step-ca 2>/dev/null; then
-        echo "Restarting step-ca service..."
-        systemctl restart step-ca || true
-    fi
-    if systemctl is-enabled --quiet wifi-enrollment 2>/dev/null; then
-        echo "Restarting wifi-enrollment service..."
-        systemctl restart wifi-enrollment || true
-    fi
-
-    echo "wifi-enrollment installed successfully."
+    echo "PKI service installed successfully."
     echo ""
-    echo "Next steps:"
-    echo "  1. Edit /etc/wifi-enrollment/config.env with your Infisical, Slack & OPNsense credentials."
-    echo "  2. Start the enrollment service:"
-    echo "       systemctl start wifi-enrollment"
-    echo "  3. (Optional) Point your reverse proxy (Caddy, Nginx, or HAProxy) to http://127.0.0.1:8000"
+    echo "Service Status:"
+    echo "  systemctl status pki"
 fi
 
 exit 0

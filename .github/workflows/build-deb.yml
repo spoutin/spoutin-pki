@@ -63,7 +63,7 @@ jobs:
       - name: Upload Debian Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wifi-enrollment-deb
+          name: pki-deb
           path: dist/*.deb
 
       - name: Create GitHub Release

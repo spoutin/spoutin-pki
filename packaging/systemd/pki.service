@@ -1,0 +1,32 @@
+[Unit]
+Description=Spoutin PKI & Certificate Access Service
+Documentation=https://github.com/spoutin/spoutin-pki
+After=network.target network-online.target
+Wants=network-online.target
+
+ConditionPathExists=/opt/pki
+ConditionPathExists=|/etc/pki/config.env
+ConditionPathExists=|/etc/pki/.env
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pki
+Environment="CONFIG_PATH=/etc/pki/config.env"
+EnvironmentFile=-/etc/pki/config.env
+EnvironmentFile=-/etc/pki/.env
+ExecStart=/opt/pki/.venv/bin/uvicorn services.pki.server:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5s
+
+# Process security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pki
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

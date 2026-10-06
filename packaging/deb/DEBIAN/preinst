@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# Cold-turkey cleanup of legacy wifi-enrollment service
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet wifi-enrollment 2>/dev/null; then
+        echo "Stopping legacy wifi-enrollment service..."
+        systemctl stop wifi-enrollment || true
+    fi
+    if systemctl is-enabled --quiet wifi-enrollment 2>/dev/null; then
+        echo "Disabling legacy wifi-enrollment service..."
+        systemctl disable wifi-enrollment || true
+    fi
+    rm -f /lib/systemd/system/wifi-enrollment.service /etc/systemd/system/wifi-enrollment.service
+fi
+
+exit 0
