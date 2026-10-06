@@ -304,7 +304,7 @@ class OpenBaoCaClient:
         """Fetches the OpenSSH CA public key from OpenBao."""
         token = self._ensure_authenticated()
         url = f"{self.base_url}/v1/{ssh_mount}/config/ca"
-        resp = self.session.get(url, headers={"X-Vault-Token": token}, timeout=10)
+        resp = self.session.get(url, headers={"X-Vault-Token": token}, verify=self.verify_ssl, timeout=10)
         resp.raise_for_status()
         data = resp.json().get("data", {})
         pub_key = data.get("public_key")
@@ -330,7 +330,7 @@ class OpenBaoCaClient:
             "valid_principals": ",".join(p.strip() for p in principals if p.strip()),
             "ttl": ttl.strip(),
         }
-        resp = self.session.post(url, headers={"X-Vault-Token": token}, json=payload, timeout=15)
+        resp = self.session.post(url, headers={"X-Vault-Token": token}, json=payload, verify=self.verify_ssl, timeout=15)
         resp.raise_for_status()
         data = resp.json().get("data", {})
         if not data.get("signed_key"):
