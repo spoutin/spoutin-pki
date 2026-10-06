@@ -8,11 +8,11 @@ mkdir -p /etc/pki /opt/pki/data
 if [ ! -f /etc/pki/config.env ]; then
     if [ -f /etc/wifi-enrollment/config.env ]; then
         echo "Migrating existing /etc/wifi-enrollment/config.env to /etc/pki/config.env..."
-        cp /etc/wifi-enrollment/config.env /etc/pki/config.env
+        sed 's|/opt/wifi-enrollment/data/inventory.db|/opt/pki/data/inventory.db|g' /etc/wifi-enrollment/config.env > /etc/pki/config.env
         chmod 600 /etc/pki/config.env
     elif [ -f /etc/wifi-enrollment/.env ]; then
         echo "Migrating existing /etc/wifi-enrollment/.env to /etc/pki/config.env..."
-        cp /etc/wifi-enrollment/.env /etc/pki/config.env
+        sed 's|/opt/wifi-enrollment/data/inventory.db|/opt/pki/data/inventory.db|g' /etc/wifi-enrollment/.env > /etc/pki/config.env
         chmod 600 /etc/pki/config.env
     else
         echo "Creating default /etc/pki/config.env configuration..."
