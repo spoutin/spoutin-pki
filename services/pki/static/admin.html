@@ -149,7 +149,7 @@
         <form id="admin-quick-sign-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <div>
             <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">Key ID / Identity</label>
-            <input type="text" id="qs-key-id" value="ablack" required style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main);">
+            <input type="text" id="qs-key-id" placeholder="e.g. operator" required style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main);">
           </div>
           <div>
             <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">Authorized Principals</label>
@@ -366,14 +366,14 @@
         <div class="modal-field">
           <label for="edit-ssh-key-filename">Local Key Filename</label>
           <input type="text" id="edit-ssh-key-filename" class="search-input" style="width: 100%;">
-          <p class="field-hint">Base name of private key on client machine (e.g. <code>id_ed25519</code> or <code>id_rsa_spoutin</code>).</p>
+          <p class="field-hint">Base name of private key on client machine (e.g. <code>id_ed25519</code> or <code>id_rsa</code>).</p>
         </div>
         <div class="modal-field">
           <label>Authorized Principals</label>
           <div id="edit-ssh-principals-group" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.35rem;">
             <!-- Populated dynamically from /api/ssh/config -->
           </div>
-          <p class="field-hint">Unix accounts allowed on servers (e.g. <code>ablack,root,operator</code>).</p>
+          <p class="field-hint">Unix accounts allowed on servers (e.g. <code>operator,root</code>).</p>
         </div>
         <div class="modal-field">
           <label for="edit-ssh-ttl">Certificate Validity (TTL)</label>

@@ -31,7 +31,7 @@
           <form id="enroll-form">
             <div class="form-group">
               <label for="device_name">Device Name</label>
-              <input type="text" id="device_name" name="device_name" placeholder="e.g. ablack-phone" required autocomplete="off" autocorrect="off" autocapitalize="none">
+              <input type="text" id="device_name" name="device_name" placeholder="e.g. personal-phone" required autocomplete="off" autocorrect="off" autocapitalize="none">
               <div class="hint">
                 Wi-Fi Identity: <span id="preview-text" class="preview-badge">none</span>
               </div>
@@ -125,43 +125,14 @@
         <!-- SSH Request Form -->
         <div id="ssh-form-view">
           <form id="ssh-enroll-form">
-            <!-- Mode Switcher: Existing Key vs Generate Key -->
-            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; background: var(--bg); padding: 0.25rem; border-radius: 8px; border: 1px solid var(--border);">
-              <button type="button" id="mode-existing-key-btn" class="portal-tab-btn active" style="flex: 1; padding: 0.45rem; font-size: 0.8rem;">📁 Use Existing SSH Key</button>
-              <button type="button" id="mode-generate-key-btn" class="portal-tab-btn" style="flex: 1; padding: 0.45rem; font-size: 0.8rem;">⚡ Generate Key for Me</button>
-            </div>
-
-            <!-- Existing Key Dropzone / File Picker -->
-            <div id="ssh-dropzone" style="margin-bottom: 1.25rem; padding: 1.25rem 1rem; border: 2px dashed var(--border); border-radius: 10px; text-align: center; background: var(--bg); cursor: pointer; transition: all 0.2s;">
-              <div style="font-size: 1.75rem; margin-bottom: 0.25rem;">📄</div>
-              <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">Drop your .pub file here or click to browse</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
-                Select your <code>id_ed25519.pub</code>, <code>id_rsa_spoutin.pub</code>, etc.
-              </div>
-              <div style="font-size: 0.75rem; color: var(--primary); margin-top: 0.4rem; font-weight: 500;">
-                💡 Mac Tip: Press <kbd style="background: var(--card-bg); border: 1px solid var(--border); padding: 1px 4px; border-radius: 4px;">Cmd+Shift+G</kbd> in file dialog and enter <code>~/.ssh</code>
-              </div>
-              <input type="file" id="ssh_file_upload" accept=".pub" style="display: none;">
-            </div>
-
-            <!-- In-Browser Key Generator Box -->
-            <div id="ssh-generator-box" class="hidden" style="margin-bottom: 1.25rem; padding: 1rem; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 10px;">
-              <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; color: var(--primary);">Secure Client-Side Key Generation</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
-                A new ED25519 key will be generated securely inside your browser using WebCrypto. Your private key stays on your machine and is never sent to the server.
-              </div>
-              <button type="button" id="btn-generate-in-browser" class="btn" style="padding: 0.55rem; font-size: 0.85rem;">⚡ Generate &amp; Download Private Key</button>
-              <div id="gen-key-status" class="hidden" style="font-size: 0.8rem; margin-top: 0.5rem; color: #10b981; font-weight: 600;"></div>
-            </div>
-
             <div class="form-group">
               <label for="ssh_name">Your Full Name</label>
-              <input type="text" id="ssh_name" name="name" placeholder="e.g. Adam Black" required autocomplete="off">
+              <input type="text" id="ssh_name" name="name" placeholder="e.g. Jane Doe" required autocomplete="off">
             </div>
 
             <div class="form-group">
               <label for="ssh_username">Key ID / Identity</label>
-              <input type="text" id="ssh_username" name="username" value="ablack" required autocomplete="off" autocorrect="off" autocapitalize="none">
+              <input type="text" id="ssh_username" name="username" placeholder="e.g. operator or username" required autocomplete="off" autocorrect="off" autocapitalize="none">
               <div class="hint">The identity that will be stamped on your certificate and logged by servers.</div>
             </div>
 
@@ -176,17 +147,42 @@
 
             <div class="form-group">
               <label for="ssh_device_name">Device / Key Label</label>
-              <input type="text" id="ssh_device_name" name="device_name" placeholder="e.g. MacBook Air M2" required autocomplete="off">
+              <input type="text" id="ssh_device_name" name="device_name" placeholder="e.g. Work Laptop" required autocomplete="off">
             </div>
 
+            <!-- Combined Public Key & Upload / Dropzone -->
             <div class="form-group">
-              <label for="ssh_public_key">OpenSSH Public Key</label>
-              <textarea id="ssh_public_key" name="public_key" rows="3" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5..." required style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main);"></textarea>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label for="ssh_public_key" style="margin-bottom: 0;">OpenSSH Public Key</label>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <label for="ssh_file_upload" style="font-size: 0.78rem; color: var(--primary); cursor: pointer; font-weight: 600;">📁 Upload .pub File</label>
+                  <input type="file" id="ssh_file_upload" accept=".pub" style="display: none;">
+                  <span style="color: var(--text-muted); font-size: 0.75rem;">|</span>
+                  <button type="button" id="btn-toggle-generator" style="background: none; border: none; font-size: 0.78rem; color: var(--primary); cursor: pointer; font-weight: 600; padding: 0;">⚡ Generate New</button>
+                </div>
+              </div>
+
+              <!-- Collapsible in-browser generator -->
+              <div id="ssh-generator-box" class="hidden" style="margin-bottom: 0.75rem; padding: 0.85rem; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 8px;">
+                <div style="font-weight: 600; font-size: 0.82rem; margin-bottom: 0.2rem; color: var(--primary);">Secure In-Browser Key Generation</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; line-height: 1.35;">
+                  Generates a new ED25519 key pair locally on your device via WebCrypto. The private key downloads to your machine and is never sent to the server.
+                </div>
+                <button type="button" id="btn-generate-in-browser" class="btn" style="padding: 0.45rem; font-size: 0.8rem;">⚡ Generate &amp; Download Private Key</button>
+                <div id="gen-key-status" class="hidden" style="font-size: 0.75rem; margin-top: 0.4rem; color: #10b981; font-weight: 600;"></div>
+              </div>
+
+              <!-- The Textarea itself acts as the Dropzone -->
+              <textarea id="ssh_public_key" name="public_key" rows="4" placeholder="Drop your .pub file here, click 'Upload .pub File', or paste your key (ssh-ed25519 AAAAC3...)" required style="width: 100%; border: 2px dashed var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main); transition: border-color 0.2s;"></textarea>
+              <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">
+                <span>💡 Mac: <kbd style="background: var(--card-bg); border: 1px solid var(--border); padding: 1px 3px; border-radius: 3px;">Cmd+Shift+G</kbd> &rarr; <code>~/.ssh</code></span>
+                <span>💡 Windows: <code>%USERPROFILE%\.ssh</code></span>
+              </div>
             </div>
 
             <div class="form-group">
               <label for="ssh_key_filename">Local Key Filename</label>
-              <input type="text" id="ssh_key_filename" name="key_filename" value="id_ed25519" required autocomplete="off">
+              <input type="text" id="ssh_key_filename" name="key_filename" value="id_ed25519" placeholder="e.g. id_ed25519 or id_rsa" required autocomplete="off">
               <div class="hint">The downloaded certificate will be named <code>&lt;filename&gt;-cert.pub</code> so OpenSSH pairs it with your private key automatically.</div>
             </div>
 
@@ -227,14 +223,16 @@
           </div>
 
           <div class="instructions-box">
-            <strong>Client Configuration</strong>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <strong>Client Configuration</strong>
+              <select id="ssh-platform-select" class="instruction-select" style="font-size: 0.8rem; padding: 0.2rem 0.5rem;">
+                <option value="macos">macOS</option>
+                <option value="windows">Windows (PowerShell)</option>
+                <option value="linux">Linux</option>
+              </select>
+            </div>
             <div id="ssh-client-instructions" style="margin-top: 0.5rem; font-size: 0.85rem; line-height: 1.5;">
-              1. Move certificate to your <code>~/.ssh/</code> directory next to your private key:<br>
-              <code id="ssh-install-cmd">mv ~/Downloads/id_ed25519-cert.pub ~/.ssh/</code><br>
-              2. Inspect certificate details:<br>
-              <code id="ssh-inspect-cmd">ssh-keygen -Lf ~/.ssh/id_ed25519-cert.pub</code><br>
-              3. Connect to any server (OpenSSH pairs it automatically!):<br>
-              <code>ssh ablack@pve1.int.spoutin.org</code>
+              <!-- Dynamically populated based on platform and key_filename -->
             </div>
           </div>
         </div>

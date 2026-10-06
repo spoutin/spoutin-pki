@@ -73,7 +73,7 @@ class EnrollmentRequest(BaseModel):
     device_name: str = Field(
         ...,
         description="Device name (2-32 chars, lowercase alphanumeric + hyphens)",
-        examples=["ablack-phone"],
+        examples=["personal-phone"],
     )
     platform: DevicePlatform = Field(
         default=DevicePlatform.OTHER,

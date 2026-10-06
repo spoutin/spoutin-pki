@@ -154,7 +154,7 @@ class SlackEnrollmentHandler:
                         "type": "plain_text_input",
                         "action_id": "device_name_input",
                         "initial_value": record.device_name,
-                        "placeholder": {"type": "plain_text", "text": "e.g. ablack-phone"},
+                        "placeholder": {"type": "plain_text", "text": "e.g. personal-phone"},
                     },
                     "label": {"type": "plain_text", "text": "Device Name / Wi-Fi Identity"},
                 },
@@ -494,7 +494,7 @@ class SlackEnrollmentHandler:
                         "initial_value": req.get("key_filename", "id_ed25519"),
                     },
                     "label": {"type": "plain_text", "text": "Local Key Filename"},
-                    "hint": {"type": "plain_text", "text": "Base name of private key (e.g. id_ed25519 or id_rsa_spoutin)."},
+                    "hint": {"type": "plain_text", "text": "Base name of private key (e.g. id_ed25519 or id_rsa)."},
                 },
                 {
                     "type": "input",

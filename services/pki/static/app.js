@@ -402,9 +402,7 @@
     if (view) view.classList.remove("hidden");
   }
 
-  const modeExistingKeyBtn = document.getElementById("mode-existing-key-btn");
-  const modeGenerateKeyBtn = document.getElementById("mode-generate-key-btn");
-  const sshDropzone = document.getElementById("ssh-dropzone");
+  const btnToggleGenerator = document.getElementById("btn-toggle-generator");
   const sshGeneratorBox = document.getElementById("ssh-generator-box");
   const btnGenerateInBrowser = document.getElementById("btn-generate-in-browser");
   const genKeyStatus = document.getElementById("gen-key-status");
@@ -413,24 +411,68 @@
   const sshFileUpload = document.getElementById("ssh_file_upload");
   const sshKeyFilenameInput = document.getElementById("ssh_key_filename");
   const downloadCertLabel = document.getElementById("download-cert-label");
-  const sshInstallCmd = document.getElementById("ssh-install-cmd");
-  const sshInspectCmd = document.getElementById("ssh-inspect-cmd");
+  const sshPlatformSelect = document.getElementById("ssh-platform-select");
+  const sshClientInstructions = document.getElementById("ssh-client-instructions");
 
   let currentApprovedKeyFilename = "id_ed25519";
+  let currentApprovedUsername = "username";
 
-  // Mode Switcher (Existing Key vs Generate Key)
-  if (modeExistingKeyBtn && modeGenerateKeyBtn) {
-    modeExistingKeyBtn.addEventListener("click", () => {
-      modeExistingKeyBtn.classList.add("active");
-      modeGenerateKeyBtn.classList.remove("active");
-      if (sshDropzone) sshDropzone.classList.remove("hidden");
-      if (sshGeneratorBox) sshGeneratorBox.classList.add("hidden");
+  // Toggle in-browser generator
+  if (btnToggleGenerator && sshGeneratorBox) {
+    btnToggleGenerator.addEventListener("click", () => {
+      sshGeneratorBox.classList.toggle("hidden");
     });
-    modeGenerateKeyBtn.addEventListener("click", () => {
-      modeGenerateKeyBtn.classList.add("active");
-      modeExistingKeyBtn.classList.remove("active");
-      if (sshDropzone) sshDropzone.classList.add("hidden");
-      if (sshGeneratorBox) sshGeneratorBox.classList.remove("hidden");
+  }
+
+  function detectClientPlatform() {
+    const ua = navigator.userAgent || "";
+    if (/windows/i.test(ua)) return "windows";
+    if (/mac/i.test(ua)) return "macos";
+    return "linux";
+  }
+
+  function renderSshInstructions(platform, keyFilename, username) {
+    if (!sshClientInstructions) return;
+    const certFile = `${keyFilename}-cert.pub`;
+    const user = username || "username";
+    if (platform === "windows") {
+      sshClientInstructions.innerHTML = `
+        <strong>Windows (PowerShell) Setup Steps:</strong>
+        <ol style="margin-left: 1.25rem; margin-top: 0.35rem; line-height: 1.6;">
+          <li>Move the certificate into your <code>~\\.ssh\\</code> directory next to your private key:
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>Move-Item -Path "$HOME\\Downloads\\${certFile}" -Destination "$HOME\\.ssh\\" -Force</code></pre>
+          </li>
+          <li>Verify certificate details:
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh-keygen -Lf "$HOME\\.ssh\\${certFile}"</code></pre>
+          </li>
+          <li>Connect to any trusted server (Windows OpenSSH pairs it automatically):
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+          </li>
+        </ol>
+      `;
+    } else {
+      // macOS & Linux
+      sshClientInstructions.innerHTML = `
+        <strong>macOS &amp; Linux (Terminal) Setup Steps:</strong>
+        <ol style="margin-left: 1.25rem; margin-top: 0.35rem; line-height: 1.6;">
+          <li>Move the certificate into your <code>~/.ssh/</code> directory next to your private key:
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>mv ~/Downloads/${certFile} ~/.ssh/ && chmod 644 ~/.ssh/${certFile}</code></pre>
+          </li>
+          <li>Verify certificate details:
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh-keygen -Lf ~/.ssh/${certFile}</code></pre>
+          </li>
+          <li>Connect to any trusted server (OpenSSH pairs it automatically):
+            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+          </li>
+        </ol>
+      `;
+    }
+  }
+
+  if (sshPlatformSelect) {
+    sshPlatformSelect.value = detectClientPlatform();
+    sshPlatformSelect.addEventListener("change", () => {
+      renderSshInstructions(sshPlatformSelect.value, currentApprovedKeyFilename, currentApprovedUsername);
     });
   }
 
@@ -442,8 +484,8 @@
       if (!resp.ok) return;
       const data = await resp.json();
       principalsCheckboxGroup.innerHTML = "";
-      const allowed = data.allowed_principals || ["ablack", "operator", "root"];
-      const defaults = data.default_principals || ["ablack", "root", "operator"];
+      const allowed = data.allowed_principals || ["operator", "root"];
+      const defaults = data.default_principals || ["operator"];
       allowed.forEach(p => {
         const isChecked = defaults.includes(p);
         const label = document.createElement("label");
@@ -482,28 +524,29 @@
     reader.readAsText(file);
   }
 
-  // File Upload & Dropzone
+  // File Upload
   if (sshFileUpload) {
     sshFileUpload.addEventListener("change", (e) => {
       handleFileSelect(e.target.files[0]);
     });
   }
 
-  if (sshDropzone && sshFileUpload) {
-    sshDropzone.addEventListener("click", () => sshFileUpload.click());
-    sshDropzone.addEventListener("dragover", (e) => {
+  // Textarea Drag & Drop
+  const sshPublicKeyArea = document.getElementById("ssh_public_key");
+  if (sshPublicKeyArea) {
+    sshPublicKeyArea.addEventListener("dragover", (e) => {
       e.preventDefault();
-      sshDropzone.style.borderColor = "var(--primary)";
-      sshDropzone.style.background = "rgba(37, 99, 235, 0.04)";
+      sshPublicKeyArea.style.borderColor = "var(--primary)";
+      sshPublicKeyArea.style.background = "rgba(37, 99, 235, 0.05)";
     });
-    sshDropzone.addEventListener("dragleave", () => {
-      sshDropzone.style.borderColor = "var(--border)";
-      sshDropzone.style.background = "var(--bg)";
+    sshPublicKeyArea.addEventListener("dragleave", () => {
+      sshPublicKeyArea.style.borderColor = "var(--border)";
+      sshPublicKeyArea.style.background = "var(--bg)";
     });
-    sshDropzone.addEventListener("drop", (e) => {
+    sshPublicKeyArea.addEventListener("drop", (e) => {
       e.preventDefault();
-      sshDropzone.style.borderColor = "var(--border)";
-      sshDropzone.style.background = "var(--bg)";
+      sshPublicKeyArea.style.borderColor = "var(--border)";
+      sshPublicKeyArea.style.background = "var(--bg)";
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
         handleFileSelect(e.dataTransfer.files[0]);
       }
@@ -533,7 +576,7 @@
     view.setUint32(offset, rawPubKeyBytes.length);
     offset += 4;
     buffer.set(rawPubKeyBytes, offset);
-    return `ssh-ed25519 ${arrayBufferToBase64(buffer.buffer)} generated-key@spoutin-pki`;
+    return `ssh-ed25519 ${arrayBufferToBase64(buffer.buffer)} user-key@pki`;
   }
 
   function formatPkcs8ToPem(pkcs8Buffer) {
@@ -646,10 +689,11 @@
           sshCertText.value = data.certificate || `Certificate issued for ${data.username}.\nSerial: ${data.request_id}`;
           const kName = data.key_filename || "id_ed25519";
           currentApprovedKeyFilename = kName;
+          currentApprovedUsername = data.username || "username";
           const certFileName = `${kName}-cert.pub`;
           if (downloadCertLabel) downloadCertLabel.textContent = certFileName;
-          if (sshInstallCmd) sshInstallCmd.textContent = `mv ~/Downloads/${certFileName} ~/.ssh/`;
-          if (sshInspectCmd) sshInspectCmd.textContent = `ssh-keygen -Lf ~/.ssh/${certFileName}`;
+          const currentPlatform = sshPlatformSelect ? sshPlatformSelect.value : detectClientPlatform();
+          renderSshInstructions(currentPlatform, kName, currentApprovedUsername);
           showSshView(sshApprovedView);
         } else if (data.status === "REJECTED") {
           clearInterval(sshPollInterval);

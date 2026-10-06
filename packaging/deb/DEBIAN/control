@@ -3,7 +3,7 @@ Version: 0.3.0
 Section: net
 Priority: optional
 Architecture: amd64
-Maintainer: Adam Black <adam@spoutin.org>
+Maintainer: Spoutin PKI Team <admin@spoutin.org>
 Depends: curl, ca-certificates
 Replaces: wifi-enrollment (<< 0.3.0)
 Conflicts: wifi-enrollment (<< 0.3.0)

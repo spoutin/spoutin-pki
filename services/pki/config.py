@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     SLACK_CHANNEL_ID: str = ""
     SLACK_CLIENT_ID: str = ""
     SLACK_CLIENT_SECRET: str = ""
-    ADMIN_SLACK_EMAILS: str = "adam@spoutin.org"
+    ADMIN_SLACK_EMAILS: str = "admin@example.com"
     SESSION_SECRET_KEY: str = "spoutin-pki-secret-key-change-me"
     DATABASE_PATH: str = "/opt/pki/data/inventory.db"
 
