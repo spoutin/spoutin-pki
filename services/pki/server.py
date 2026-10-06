@@ -112,6 +112,7 @@ class SshEnrollmentRequest(BaseModel):
     public_key: str = Field(..., min_length=20)
     principals: Optional[list[str]] = None
     ttl: Optional[str] = "70080h"
+    key_filename: Optional[str] = "id_ed25519"
 
 
 class SshQuickSignRequest(BaseModel):
@@ -120,6 +121,7 @@ class SshQuickSignRequest(BaseModel):
     principals: list[str] = Field(default_factory=lambda: ["ablack", "root", "operator"])
     ttl: str = "70080h"
     role: str = "admin-user"
+    key_filename: Optional[str] = "id_ed25519"
 
 
 class SshApproveRequest(BaseModel):
@@ -128,6 +130,7 @@ class SshApproveRequest(BaseModel):
     principals: Optional[list[str]] = None
     ttl: Optional[str] = "70080h"
     role: Optional[str] = None
+    key_filename: Optional[str] = None
 
 
 def calculate_ssh_fingerprint(public_key: str) -> str:
@@ -372,6 +375,7 @@ def create_app(
             key_fingerprint=fp,
             principals=principals,
             ttl=body.ttl or "70080h",
+            key_filename=body.key_filename or "id_ed25519",
         )
         sh = getattr(app.state, "slack_handler", None)
         if sh and hasattr(sh, "send_ssh_request_notification"):
@@ -948,6 +952,7 @@ def create_app(
                 certificate=cert,
                 valid_from=now,
                 valid_to=valid_to,
+                key_filename=body.key_filename or "id_ed25519",
             )
             return {
                 "serial_number": serial,
@@ -955,6 +960,7 @@ def create_app(
                 "key_id": body.key_id,
                 "principals": body.principals,
                 "valid_to": valid_to,
+                "key_filename": body.key_filename or "id_ed25519",
             }
         except Exception as e:
             logger.error(f"Quick-sign SSH key failed: {e}", exc_info=True)
@@ -975,6 +981,7 @@ def create_app(
 
         effective_key_id = (body.key_id or req["username"]).strip()
         effective_device_name = (body.device_name or req.get("device_name", "")).strip()
+        effective_key_filename = (body.key_filename or req.get("key_filename") or "id_ed25519").strip()
         principals = body.principals or [p.strip() for p in req["principals"].split(",") if p.strip()]
         ttl = body.ttl or req.get("requested_ttl") or "70080h"
         role = body.role or ("admin-user" if any(p in ("root", "ablack") for p in principals) else "operator-user")
@@ -1000,6 +1007,7 @@ def create_app(
                 certificate=cert,
                 valid_from=now,
                 valid_to=valid_to,
+                key_filename=effective_key_filename,
             )
             db.update_ssh_request_status(request_id, "APPROVED", reviewed_by=admin.get("email", "admin"))
             return {
@@ -1008,6 +1016,7 @@ def create_app(
                 "key_id": effective_key_id,
                 "principals": principals,
                 "valid_to": valid_to,
+                "key_filename": effective_key_filename,
             }
         except Exception as e:
             logger.error(f"Approval of SSH request {request_id} failed: {e}", exc_info=True)

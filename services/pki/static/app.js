@@ -402,6 +402,54 @@
     if (view) view.classList.remove("hidden");
   }
 
+  const copyEd25519Cmd = document.getElementById("copy-ed25519-cmd");
+  const copyRsaCmd = document.getElementById("copy-rsa-cmd");
+  const sshFileUpload = document.getElementById("ssh_file_upload");
+  const sshKeyFilenameInput = document.getElementById("ssh_key_filename");
+  const downloadCertLabel = document.getElementById("download-cert-label");
+  const sshInstallCmd = document.getElementById("ssh-install-cmd");
+  const sshInspectCmd = document.getElementById("ssh-inspect-cmd");
+
+  let currentApprovedKeyFilename = "id_ed25519";
+
+  if (copyEd25519Cmd) {
+    copyEd25519Cmd.addEventListener("click", () => {
+      navigator.clipboard.writeText("pbcopy < ~/.ssh/id_ed25519.pub").then(() => {
+        copyEd25519Cmd.textContent = "✅ Copied Command!";
+        setTimeout(() => { copyEd25519Cmd.textContent = "🍏 pbcopy < ~/.ssh/id_ed25519.pub"; }, 2000);
+      });
+    });
+  }
+
+  if (copyRsaCmd) {
+    copyRsaCmd.addEventListener("click", () => {
+      navigator.clipboard.writeText("pbcopy < ~/.ssh/id_rsa_spoutin.pub").then(() => {
+        copyRsaCmd.textContent = "✅ Copied Command!";
+        setTimeout(() => { copyRsaCmd.textContent = "🔑 pbcopy < ~/.ssh/id_rsa_spoutin.pub"; }, 2000);
+      });
+    });
+  }
+
+  if (sshFileUpload) {
+    sshFileUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      let baseName = file.name;
+      if (baseName.endsWith(".pub")) {
+        baseName = baseName.substring(0, baseName.length - 4);
+      }
+      if (sshKeyFilenameInput) {
+        sshKeyFilenameInput.value = baseName;
+      }
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const keyArea = document.getElementById("ssh_public_key");
+        if (keyArea) keyArea.value = evt.target.result.trim();
+      };
+      reader.readAsText(file);
+    });
+  }
+
   if (sshEnrollForm) {
     sshEnrollForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -410,6 +458,7 @@
       const username = document.getElementById("ssh_username").value.trim();
       const deviceName = document.getElementById("ssh_device_name").value.trim();
       const publicKey = document.getElementById("ssh_public_key").value.trim();
+      const keyFilename = (sshKeyFilenameInput ? sshKeyFilenameInput.value.trim() : "") || "id_ed25519";
 
       if (!publicKey.startsWith("ssh-") && !publicKey.startsWith("ecdsa-")) {
         sshFormError.textContent = "Invalid public key format. Must start with ssh-ed25519, ssh-rsa, etc.";
@@ -421,7 +470,7 @@
         const resp = await fetch("/api/ssh/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, username, device_name: deviceName, public_key: publicKey }),
+          body: JSON.stringify({ name, username, device_name: deviceName, public_key: publicKey, key_filename: keyFilename }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -448,6 +497,12 @@
         if (data.status === "APPROVED") {
           clearInterval(sshPollInterval);
           sshCertText.value = data.certificate || `Certificate issued for ${data.username}.\nSerial: ${data.request_id}`;
+          const kName = data.key_filename || "id_ed25519";
+          currentApprovedKeyFilename = kName;
+          const certFileName = `${kName}-cert.pub`;
+          if (downloadCertLabel) downloadCertLabel.textContent = certFileName;
+          if (sshInstallCmd) sshInstallCmd.textContent = `mv ~/Downloads/${certFileName} ~/.ssh/`;
+          if (sshInspectCmd) sshInspectCmd.textContent = `ssh-keygen -Lf ~/.ssh/${certFileName}`;
           showSshView(sshApprovedView);
         } else if (data.status === "REJECTED") {
           clearInterval(sshPollInterval);
@@ -474,9 +529,13 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "id_ed25519-cert.pub";
+      a.download = `${currentApprovedKeyFilename}-cert.pub`;
       document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     });

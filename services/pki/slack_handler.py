@@ -487,6 +487,17 @@ class SlackEnrollmentHandler:
                 },
                 {
                     "type": "input",
+                    "block_id": "key_filename_block",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "key_filename_input",
+                        "initial_value": req.get("key_filename", "id_ed25519"),
+                    },
+                    "label": {"type": "plain_text", "text": "Local Key Filename"},
+                    "hint": {"type": "plain_text", "text": "Base name of private key (e.g. id_ed25519 or id_rsa_spoutin)."},
+                },
+                {
+                    "type": "input",
                     "block_id": "ttl_block",
                     "element": {
                         "type": "plain_text_input",
@@ -739,6 +750,7 @@ class SlackEnrollmentHandler:
             device_name = values["device_name_block"]["device_name_input"]["value"].strip()
             principals_raw = values["principals_block"]["principals_input"]["value"]
             principals = [p.strip() for p in principals_raw.split(",") if p.strip()]
+            key_filename = values.get("key_filename_block", {}).get("key_filename_input", {}).get("value", "id_ed25519").strip() or "id_ed25519"
             ttl = values["ttl_block"]["ttl_input"]["value"].strip() or "70080h"
 
             if not self.database:
@@ -776,6 +788,7 @@ class SlackEnrollmentHandler:
                     certificate=cert,
                     valid_from=now,
                     valid_to=valid_to,
+                    key_filename=key_filename,
                 )
                 self.database.update_ssh_request_status(request_id, "APPROVED", reviewed_by=f"slack:@{user_name}")
                 if channel_id and ts:

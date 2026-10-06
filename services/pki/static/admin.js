@@ -30,12 +30,17 @@
   const editSshApproveModal = document.getElementById("edit-ssh-approve-modal");
   const editSshKeyIdInput = document.getElementById("edit-ssh-key-id");
   const editSshDeviceInput = document.getElementById("edit-ssh-device");
+  const editSshKeyFilenameInput = document.getElementById("edit-ssh-key-filename");
   const editSshPrincipalsInput = document.getElementById("edit-ssh-principals");
   const editSshTtlInput = document.getElementById("edit-ssh-ttl");
   const editSshCancelBtn = document.getElementById("edit-ssh-cancel-btn");
   const editSshConfirmBtn = document.getElementById("edit-ssh-confirm-btn");
   let currentEditingSshRequestId = null;
   let cachedSshRequests = [];
+
+  const qsFileUpload = document.getElementById("qs-file-upload");
+  const qsKeyFilenameInput = document.getElementById("qs-key-filename");
+  let currentQuickSignFilename = "id_ed25519";
 
   const requestsTbody = document.getElementById("requests-tbody");
   const requestsEmpty = document.getElementById("requests-empty");
@@ -834,6 +839,26 @@
     }
   }
 
+  if (qsFileUpload) {
+    qsFileUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      let baseName = file.name;
+      if (baseName.endsWith(".pub")) {
+        baseName = baseName.substring(0, baseName.length - 4);
+      }
+      if (qsKeyFilenameInput) {
+        qsKeyFilenameInput.value = baseName;
+      }
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const keyArea = document.getElementById("qs-public-key");
+        if (keyArea) keyArea.value = evt.target.result.trim();
+      };
+      reader.readAsText(file);
+    });
+  }
+
   // Quick Sign Form submit
   if (adminQuickSignForm) {
     adminQuickSignForm.addEventListener("submit", async (e) => {
@@ -842,6 +867,8 @@
       const principals = document.getElementById("qs-principals").value.split(",").map(p => p.trim()).filter(Boolean);
       const publicKey = document.getElementById("qs-public-key").value.trim();
       const ttl = document.getElementById("qs-ttl").value.trim();
+      const keyFilename = (qsKeyFilenameInput ? qsKeyFilenameInput.value.trim() : "") || "id_ed25519";
+      currentQuickSignFilename = keyFilename;
       const submitBtn = document.getElementById("btn-quick-sign");
 
       submitBtn.disabled = true;
@@ -850,7 +877,7 @@
         const resp = await adminFetch("/api/admin/ssh/quick-sign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key_id: keyId, principals, public_key: publicKey, ttl }),
+          body: JSON.stringify({ key_id: keyId, principals, public_key: publicKey, ttl, key_filename: keyFilename }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -884,7 +911,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "id_ed25519-cert.pub";
+      a.download = `${currentQuickSignFilename}-cert.pub`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -905,6 +932,9 @@
         currentEditingSshRequestId = reqId;
         editSshKeyIdInput.value = req.username || "";
         editSshDeviceInput.value = req.device_name || "";
+        if (editSshKeyFilenameInput) {
+          editSshKeyFilenameInput.value = req.key_filename || "id_ed25519";
+        }
         editSshPrincipalsInput.value = req.principals || "ablack,root,operator";
         editSshTtlInput.value = req.requested_ttl || "70080h";
         editSshApproveModal.classList.remove("hidden");
@@ -951,6 +981,7 @@
       if (!currentEditingSshRequestId) return;
       const keyId = editSshKeyIdInput.value.trim();
       const deviceName = editSshDeviceInput.value.trim();
+      const keyFilename = (editSshKeyFilenameInput ? editSshKeyFilenameInput.value.trim() : "") || "id_ed25519";
       const principals = editSshPrincipalsInput.value.split(",").map(p => p.trim()).filter(Boolean);
       const ttl = editSshTtlInput.value.trim();
 
@@ -960,7 +991,7 @@
         const resp = await adminFetch(`/api/admin/ssh/requests/${currentEditingSshRequestId}/approve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key_id: keyId, device_name: deviceName, principals, ttl }),
+          body: JSON.stringify({ key_id: keyId, device_name: deviceName, key_filename: keyFilename, principals, ttl }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));

@@ -80,6 +80,7 @@ class CertificateDatabase:
                     key_fingerprint TEXT NOT NULL,
                     principals TEXT NOT NULL,
                     requested_ttl TEXT NOT NULL,
+                    key_filename TEXT NOT NULL DEFAULT 'id_ed25519',
                     status TEXT NOT NULL DEFAULT 'PENDING',
                     created_at INTEGER NOT NULL,
                     reviewed_at INTEGER,
@@ -98,12 +99,24 @@ class CertificateDatabase:
                     certificate TEXT NOT NULL,
                     valid_from INTEGER NOT NULL,
                     valid_to INTEGER NOT NULL,
+                    key_filename TEXT NOT NULL DEFAULT 'id_ed25519',
                     status TEXT NOT NULL DEFAULT 'ACTIVE',
                     created_at INTEGER NOT NULL,
                     revoked_at INTEGER
                 );
                 """
             )
+            # Automatic schema migration for existing databases
+            cur.execute("PRAGMA table_info(ssh_requests)")
+            ssh_req_cols = [col[1] for col in cur.fetchall()]
+            if "key_filename" not in ssh_req_cols:
+                cur.execute("ALTER TABLE ssh_requests ADD COLUMN key_filename TEXT NOT NULL DEFAULT 'id_ed25519';")
+
+            cur.execute("PRAGMA table_info(ssh_certificates)")
+            ssh_cert_cols = [col[1] for col in cur.fetchall()]
+            if "key_filename" not in ssh_cert_cols:
+                cur.execute("ALTER TABLE ssh_certificates ADD COLUMN key_filename TEXT NOT NULL DEFAULT 'id_ed25519';")
+
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_requests_status ON ssh_requests(status);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_key_id ON ssh_certificates(key_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_status ON ssh_certificates(status);")
@@ -348,6 +361,7 @@ class CertificateDatabase:
         key_fingerprint: str,
         principals: list[str] | str,
         ttl: str = "70080h",
+        key_filename: str = "id_ed25519",
         request_id: Optional[str] = None,
     ) -> str:
         req_id = request_id or f"ssh-{uuid.uuid4().hex[:12]}"
@@ -360,10 +374,10 @@ class CertificateDatabase:
                 """
                 INSERT INTO ssh_requests (
                     request_id, name, username, device_name, public_key,
-                    key_fingerprint, principals, requested_ttl, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                    key_fingerprint, principals, requested_ttl, key_filename, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
                 """,
-                (req_id, name, username, device_name, public_key, key_fingerprint, principals_str, ttl, now),
+                (req_id, name, username, device_name, public_key, key_fingerprint, principals_str, ttl, key_filename, now),
             )
             self._conn.commit()
             return req_id
@@ -414,6 +428,7 @@ class CertificateDatabase:
         certificate: str,
         valid_from: int,
         valid_to: int,
+        key_filename: str = "id_ed25519",
     ) -> None:
         now = int(time.time())
         principals_str = ",".join(principals) if isinstance(principals, list) else principals
@@ -425,8 +440,8 @@ class CertificateDatabase:
                 INSERT OR REPLACE INTO ssh_certificates (
                     serial_number, key_id, principals, public_key,
                     key_fingerprint, certificate, valid_from, valid_to,
-                    status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+                    key_filename, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
                 """,
                 (
                     serial_number,
@@ -437,6 +452,7 @@ class CertificateDatabase:
                     certificate,
                     valid_from,
                     valid_to,
+                    key_filename,
                     now,
                 ),
             )

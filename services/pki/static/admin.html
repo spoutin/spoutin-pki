@@ -156,8 +156,16 @@
             <input type="text" id="qs-principals" value="ablack,root,operator" required style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main);">
           </div>
           <div style="grid-column: span 2;">
-            <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">OpenSSH Public Key</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <label style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0;">OpenSSH Public Key</label>
+              <label for="qs-file-upload" style="font-size: 0.8rem; color: var(--primary); cursor: pointer; font-weight: 600;">📁 Upload .pub File</label>
+              <input type="file" id="qs-file-upload" accept=".pub" style="display: none;">
+            </div>
             <textarea id="qs-public-key" rows="3" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..." required style="width: 100%; font-family: monospace; font-size: 0.8rem; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main);"></textarea>
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">Local Key Filename</label>
+            <input type="text" id="qs-key-filename" value="id_ed25519" required style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-main);">
           </div>
           <div>
             <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">Validity (TTL)</label>
@@ -352,6 +360,11 @@
         <div class="modal-field">
           <label for="edit-ssh-device">Device Name / Description</label>
           <input type="text" id="edit-ssh-device" class="search-input" style="width: 100%;">
+        </div>
+        <div class="modal-field">
+          <label for="edit-ssh-key-filename">Local Key Filename</label>
+          <input type="text" id="edit-ssh-key-filename" class="search-input" style="width: 100%;">
+          <p class="field-hint">Base name of private key on client machine (e.g. <code>id_ed25519</code> or <code>id_rsa_spoutin</code>).</p>
         </div>
         <div class="modal-field">
           <label for="edit-ssh-principals">Authorized Principals (comma-separated)</label>

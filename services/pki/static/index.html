@@ -125,6 +125,18 @@
         <!-- SSH Request Form -->
         <div id="ssh-form-view">
           <form id="ssh-enroll-form">
+            <!-- Helper box for existing keys -->
+            <div style="margin-bottom: 1.25rem; padding: 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
+              <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">Using an Existing SSH Key?</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                Click to copy command to read your existing public key:
+              </div>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" id="copy-ed25519-cmd" style="font-size: 0.75rem; padding: 0.35rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); cursor: pointer; border-radius: 6px;">🍏 pbcopy &lt; ~/.ssh/id_ed25519.pub</button>
+                <button type="button" id="copy-rsa-cmd" style="font-size: 0.75rem; padding: 0.35rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); cursor: pointer; border-radius: 6px;">🔑 pbcopy &lt; ~/.ssh/id_rsa_spoutin.pub</button>
+              </div>
+            </div>
+
             <div class="form-group">
               <label for="ssh_name">Your Full Name</label>
               <input type="text" id="ssh_name" name="name" placeholder="e.g. Adam Black" required autocomplete="off">
@@ -142,9 +154,19 @@
             </div>
 
             <div class="form-group">
-              <label for="ssh_public_key">OpenSSH Public Key</label>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label for="ssh_public_key" style="margin-bottom: 0;">OpenSSH Public Key</label>
+                <label for="ssh_file_upload" style="font-size: 0.8rem; color: var(--primary); cursor: pointer; font-weight: 600;">📁 Upload .pub File</label>
+                <input type="file" id="ssh_file_upload" accept=".pub" style="display: none;">
+              </div>
               <textarea id="ssh_public_key" name="public_key" rows="4" placeholder="Paste your public key here (ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...)" required style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; background: var(--bg); color: var(--text-main);"></textarea>
-              <div class="hint">Generate a key locally: <code>ssh-keygen -t ed25519</code> &bull; Private key stays on your computer!</div>
+              <div class="hint">Or drag-and-drop your <code>.pub</code> file above. Private key never leaves your computer!</div>
+            </div>
+
+            <div class="form-group">
+              <label for="ssh_key_filename">Local Key Filename</label>
+              <input type="text" id="ssh_key_filename" name="key_filename" value="id_ed25519" required autocomplete="off">
+              <div class="hint">The downloaded certificate will be named <code>&lt;filename&gt;-cert.pub</code> so OpenSSH pairs it with your private key automatically.</div>
             </div>
 
             <div id="ssh-form-error" class="banner banner-error hidden"></div>
@@ -179,16 +201,19 @@
             <textarea id="ssh-cert-text" readonly rows="5" style="width: 100%; font-family: monospace; font-size: 0.75rem; background: var(--bg); color: var(--text-main); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem;"></textarea>
             <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
               <button type="button" id="copy-ssh-cert-btn" class="btn btn-secondary" style="flex: 1; padding: 0.5rem;">📋 Copy Certificate</button>
-              <button type="button" id="download-ssh-cert-btn" class="btn" style="flex: 1; padding: 0.5rem;">⬇️ Download -cert.pub</button>
+              <button type="button" id="download-ssh-cert-btn" class="btn" style="flex: 1; padding: 0.5rem;">⬇️ Download <span id="download-cert-label">id_ed25519-cert.pub</span></button>
             </div>
           </div>
 
           <div class="instructions-box">
             <strong>Client Configuration</strong>
-            <div style="margin-top: 0.5rem; font-size: 0.85rem;">
-              1. Save the certificate file as <code>~/.ssh/id_ed25519-cert.pub</code> next to your private key.<br>
-              2. Inspect certificate: <code>ssh-keygen -Lf ~/.ssh/id_ed25519-cert.pub</code><br>
-              3. Connect to any trusted host: <code>ssh ablack@pve1.int.spoutin.org</code>
+            <div id="ssh-client-instructions" style="margin-top: 0.5rem; font-size: 0.85rem; line-height: 1.5;">
+              1. Move certificate to your <code>~/.ssh/</code> directory next to your private key:<br>
+              <code id="ssh-install-cmd">mv ~/Downloads/id_ed25519-cert.pub ~/.ssh/</code><br>
+              2. Inspect certificate details:<br>
+              <code id="ssh-inspect-cmd">ssh-keygen -Lf ~/.ssh/id_ed25519-cert.pub</code><br>
+              3. Connect to any server (OpenSSH pairs it automatically!):<br>
+              <code>ssh ablack@pve1.int.spoutin.org</code>
             </div>
           </div>
         </div>
