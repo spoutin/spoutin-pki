@@ -179,6 +179,73 @@ echo "Portal Secret ID: $PORTAL_SECRET_ID"
 
 ---
 
+### 5. Configure OpenSSH Certificate Authority (SSH Secrets Engine)
+
+OpenBao supports native OpenSSH certificate signing. Target hosts (`pve1`, `docker`, `opnsense`, etc.) only need to trust the CA's public key via `TrustedUserCAKeys`.
+
+```bash
+# 1. Enable SSH secrets engine at /v1/ssh
+bao secrets enable -path=ssh ssh
+bao secrets tune -max-lease-ttl=87600h ssh
+
+# 2. Generate native ED25519 SSH CA key (10-year validity)
+bao write ssh/config/ca generate_signing_key=true key_type=ed25519
+
+# 3. Configure admin-user role (defaults to ablack, allows root and operator)
+bao write ssh/roles/admin-user \
+    key_type=ca \
+    allow_user_certificates=true \
+    allowed_users="ablack,root,operator" \
+    allowed_extensions="permit-pty,permit-agent-forwarding,permit-port-forwarding,permit-user-rc,permit-X11-forwarding" \
+    default_user="ablack" \
+    default_ttl="70080h" \
+    max_ttl="87600h"
+
+# 4. Configure operator-user role (standard generic operational account)
+bao write ssh/roles/operator-user \
+    key_type=ca \
+    allow_user_certificates=true \
+    allowed_users="operator" \
+    allowed_extensions="permit-pty,permit-agent-forwarding,permit-port-forwarding,permit-user-rc" \
+    default_user="operator" \
+    default_ttl="70080h" \
+    max_ttl="70080h"
+
+# 5. Update wifi-portal policy to include SSH CA permissions
+cat << 'EOF' > /tmp/wifi-portal-policy.hcl
+path "pki/sign/wifi-client" {
+  capabilities = ["create", "update"]
+}
+path "pki/revoke" {
+  capabilities = ["create", "update"]
+}
+path "pki/crl" {
+  capabilities = ["read"]
+}
+path "pki/crl/pem" {
+  capabilities = ["read"]
+}
+path "pki/ca/pem" {
+  capabilities = ["read"]
+}
+
+# SSH CA Engine
+path "ssh/config/ca" {
+  capabilities = ["read"]
+}
+path "ssh/sign/admin-user" {
+  capabilities = ["create", "update"]
+}
+path "ssh/sign/operator-user" {
+  capabilities = ["create", "update"]
+}
+EOF
+bao policy write wifi-portal /tmp/wifi-portal-policy.hcl
+rm -f /tmp/wifi-portal-policy.hcl
+```
+
+---
+
 ## Part 2: Caddy Host Configuration (Secret Injection & Monitoring)
 
 On the host running Caddy:
