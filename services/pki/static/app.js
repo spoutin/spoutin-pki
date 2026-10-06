@@ -536,10 +536,6 @@
       URL.revokeObjectURL(url);
     });
   }
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-  }
 
   if (sshRetryBtn) {
     sshRetryBtn.addEventListener("click", () => {
