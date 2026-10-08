@@ -84,7 +84,9 @@ class CertificateDatabase:
                     status TEXT NOT NULL DEFAULT 'PENDING',
                     created_at INTEGER NOT NULL,
                     reviewed_at INTEGER,
-                    reviewed_by TEXT
+                    reviewed_by TEXT,
+                    certificate TEXT,
+                    serial_number TEXT
                 );
                 """
             )
@@ -111,6 +113,10 @@ class CertificateDatabase:
             ssh_req_cols = [col[1] for col in cur.fetchall()]
             if "key_filename" not in ssh_req_cols:
                 cur.execute("ALTER TABLE ssh_requests ADD COLUMN key_filename TEXT NOT NULL DEFAULT 'id_ed25519';")
+            if "certificate" not in ssh_req_cols:
+                cur.execute("ALTER TABLE ssh_requests ADD COLUMN certificate TEXT;")
+            if "serial_number" not in ssh_req_cols:
+                cur.execute("ALTER TABLE ssh_requests ADD COLUMN serial_number TEXT;")
 
             cur.execute("PRAGMA table_info(ssh_certificates)")
             ssh_cert_cols = [col[1] for col in cur.fetchall()]
@@ -387,13 +393,27 @@ class CertificateDatabase:
             cur = self._conn.cursor()
             cur.execute("SELECT * FROM ssh_requests WHERE request_id = ?", (request_id,))
             row = cur.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            res = dict(row)
+            if res.get("status") == "APPROVED" and not res.get("certificate"):
+                cur.execute(
+                    "SELECT certificate, serial_number FROM ssh_certificates WHERE key_fingerprint = ? OR public_key = ? ORDER BY created_at DESC LIMIT 1",
+                    (res.get("key_fingerprint"), res.get("public_key")),
+                )
+                cert_row = cur.fetchone()
+                if cert_row:
+                    res["certificate"] = cert_row["certificate"]
+                    res["serial_number"] = cert_row["serial_number"]
+            return res
 
     def update_ssh_request_status(
         self,
         request_id: str,
         status: str,
         reviewed_by: Optional[str] = None,
+        certificate: Optional[str] = None,
+        serial_number: Optional[str] = None,
     ) -> bool:
         now = int(time.time())
         with self._lock:
@@ -401,10 +421,12 @@ class CertificateDatabase:
             cur.execute(
                 """
                 UPDATE ssh_requests
-                SET status = ?, reviewed_at = ?, reviewed_by = ?
+                SET status = ?, reviewed_at = ?, reviewed_by = ?,
+                    certificate = COALESCE(?, certificate),
+                    serial_number = COALESCE(?, serial_number)
                 WHERE request_id = ?
                 """,
-                (status, now, reviewed_by, request_id),
+                (status, now, reviewed_by, certificate, serial_number, request_id),
             )
             self._conn.commit()
             return cur.rowcount > 0

@@ -705,7 +705,13 @@ class SlackEnrollmentHandler:
                     valid_from=now,
                     valid_to=valid_to,
                 )
-                self.database.update_ssh_request_status(request_id, "APPROVED", reviewed_by=f"slack:@{user_name}")
+                self.database.update_ssh_request_status(
+                    request_id,
+                    "APPROVED",
+                    reviewed_by=f"slack:@{user_name}",
+                    certificate=cert,
+                    serial_number=serial,
+                )
                 self._update_channel_message(
                     channel=body["channel"]["id"],
                     ts=body["message"]["ts"],
@@ -790,7 +796,13 @@ class SlackEnrollmentHandler:
                     valid_to=valid_to,
                     key_filename=key_filename,
                 )
-                self.database.update_ssh_request_status(request_id, "APPROVED", reviewed_by=f"slack:@{user_name}")
+                self.database.update_ssh_request_status(
+                    request_id,
+                    "APPROVED",
+                    reviewed_by=f"slack:@{user_name}",
+                    certificate=cert,
+                    serial_number=serial,
+                )
                 if channel_id and ts:
                     self._update_channel_message(
                         channel=channel_id,

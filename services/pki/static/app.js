@@ -440,13 +440,22 @@
         <strong>Windows (PowerShell) Setup Steps:</strong>
         <ol style="margin-left: 1.25rem; margin-top: 0.35rem; line-height: 1.6;">
           <li>Move the certificate into your <code>~\\.ssh\\</code> directory next to your private key:
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>Move-Item -Path "$HOME\\Downloads\\${certFile}" -Destination "$HOME\\.ssh\\" -Force</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>Move-Item -Path "$HOME\\Downloads\\${certFile}" -Destination "$HOME\\.ssh\\" -Force</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
           <li>Verify certificate details:
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh-keygen -Lf "$HOME\\.ssh\\${certFile}"</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>ssh-keygen -Lf "$HOME\\.ssh\\${certFile}"</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
           <li>Connect to any trusted server (Windows OpenSSH pairs it automatically):
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
         </ol>
       `;
@@ -456,13 +465,22 @@
         <strong>macOS &amp; Linux (Terminal) Setup Steps:</strong>
         <ol style="margin-left: 1.25rem; margin-top: 0.35rem; line-height: 1.6;">
           <li>Move the certificate into your <code>~/.ssh/</code> directory next to your private key:
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>mv ~/Downloads/${certFile} ~/.ssh/ && chmod 644 ~/.ssh/${certFile}</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>mv ~/Downloads/${certFile} ~/.ssh/ &amp;&amp; chmod 644 ~/.ssh/${certFile}</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
           <li>Verify certificate details:
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh-keygen -Lf ~/.ssh/${certFile}</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>ssh-keygen -Lf ~/.ssh/${certFile}</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
           <li>Connect to any trusted server (OpenSSH pairs it automatically):
-            <pre style="background: var(--bg); padding: 0.4rem; border-radius: 4px; margin: 0.25rem 0; overflow-x: auto;"><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+            <div class="code-block-wrapper">
+              <pre><code>ssh ${user}@pve1.int.spoutin.org</code></pre>
+              <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
+            </div>
           </li>
         </ol>
       `;
@@ -473,6 +491,28 @@
     sshPlatformSelect.value = detectClientPlatform();
     sshPlatformSelect.addEventListener("change", () => {
       renderSshInstructions(sshPlatformSelect.value, currentApprovedKeyFilename, currentApprovedUsername);
+    });
+  }
+
+  if (sshClientInstructions) {
+    sshClientInstructions.addEventListener("click", (e) => {
+      const btn = e.target.closest(".btn-copy-code");
+      if (!btn) return;
+      const wrapper = btn.closest(".code-block-wrapper");
+      const codeEl = wrapper ? wrapper.querySelector("code") : null;
+      if (!codeEl) return;
+      const textToCopy = codeEl.textContent.trim();
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        const origText = btn.textContent;
+        btn.classList.add("copied");
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => {
+          btn.textContent = origText;
+          btn.classList.remove("copied");
+        }, 1500);
+      }).catch((err) => {
+        console.error("Clipboard copy failed:", err);
+      });
     });
   }
 

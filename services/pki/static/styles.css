@@ -355,6 +355,62 @@ code {
   word-break: break-all;
 }
 
+.code-block-wrapper {
+  position: relative;
+  margin: 0.35rem 0;
+}
+
+.code-block-wrapper pre {
+  background: var(--bg);
+  padding: 0.5rem 4.75rem 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.code-block-wrapper pre code {
+  background: transparent;
+  color: var(--text-main);
+  padding: 0;
+  border-radius: 0;
+  word-break: normal;
+  white-space: pre;
+}
+
+.code-block-wrapper .btn-copy-code {
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.code-block-wrapper .btn-copy-code:hover {
+  color: var(--text-main);
+  border-color: var(--primary);
+}
+
+.code-block-wrapper .btn-copy-code.copied {
+  color: #16a34a;
+  border-color: #16a34a;
+  background: var(--success-bg);
+}
+
 .hidden {
   display: none !important;
 }

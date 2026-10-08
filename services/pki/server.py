@@ -253,7 +253,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin PKI Certificate Portal & Admin Dashboard",
-        version="0.3.0",
+        version="0.3.1",
         lifespan=lifespan,
     )
 
@@ -1019,7 +1019,13 @@ def create_app(
                 valid_to=valid_to,
                 key_filename=effective_key_filename,
             )
-            db.update_ssh_request_status(request_id, "APPROVED", reviewed_by=admin.get("email", "admin"))
+            db.update_ssh_request_status(
+                request_id,
+                "APPROVED",
+                reviewed_by=admin.get("email", "admin"),
+                certificate=cert,
+                serial_number=serial,
+            )
             return {
                 "serial_number": serial,
                 "certificate": cert,

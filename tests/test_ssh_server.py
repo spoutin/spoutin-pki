@@ -117,6 +117,14 @@ def test_admin_ssh_requests_and_approval(client, admin_cookie):
     assert resp_app.status_code == 200
     assert resp_app.json()["certificate"].startswith("ssh-ed25519-cert-v01")
 
+    # Verify guest status endpoint returns the signed certificate and serial
+    resp_status = client.get(f"/api/ssh/status/{req_id}")
+    assert resp_status.status_code == 200
+    status_data = resp_status.json()
+    assert status_data["status"] == "APPROVED"
+    assert status_data["certificate"].startswith("ssh-ed25519-cert-v01")
+    assert status_data["serial_number"] == "555123"
+
     # Verify cert appears in certificates list
     resp_certs = client.get("/api/admin/ssh/certificates", cookies=admin_cookie)
     assert resp_certs.status_code == 200
