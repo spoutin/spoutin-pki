@@ -466,7 +466,7 @@
         <ol style="margin-left: 1.25rem; margin-top: 0.35rem; line-height: 1.6;">
           <li>Move the certificate into your <code>~/.ssh/</code> directory next to your private key:
             <div class="code-block-wrapper">
-              <pre><code>mv ~/Downloads/${certFile} ~/.ssh/ &amp;&amp; chmod 644 ~/.ssh/${certFile}</code></pre>
+              <pre><code>mv ~/Downloads/${certFile} ~/.ssh/ &amp;&amp; chmod 600 ~/.ssh/${certFile}</code></pre>
               <button type="button" class="btn-copy-code" title="Copy command">📋 Copy</button>
             </div>
           </li>

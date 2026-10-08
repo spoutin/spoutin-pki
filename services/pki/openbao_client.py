@@ -320,15 +320,28 @@ class OpenBaoCaClient:
         ttl: str = "70080h",
         role: str = "admin-user",
         ssh_mount: str = "ssh",
+        extensions: Optional[dict[str, str]] = None,
     ) -> dict[str, Any]:
         """Signs an OpenSSH public key with OpenBao SSH secrets engine."""
         token = self._ensure_authenticated()
         url = f"{self.base_url}/v1/{ssh_mount}/sign/{role}"
+
+        if extensions is None:
+            extensions = {
+                "permit-pty": "",
+                "permit-agent-forwarding": "",
+                "permit-port-forwarding": "",
+                "permit-user-rc": "",
+            }
+            if role == "admin-user":
+                extensions["permit-X11-forwarding"] = ""
+
         payload = {
             "public_key": public_key.strip(),
             "key_id": key_id.strip(),
             "valid_principals": ",".join(p.strip() for p in principals if p.strip()),
             "ttl": ttl.strip(),
+            "extensions": extensions,
         }
         resp = self.session.post(url, headers={"X-Vault-Token": token}, json=payload, verify=self.verify_ssl, timeout=15)
         resp.raise_for_status()

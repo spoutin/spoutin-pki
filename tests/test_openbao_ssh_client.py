@@ -60,4 +60,41 @@ def test_sign_ssh_public_key(mock_openbao):
         assert kwargs["json"]["key_id"] == "ablack"
         assert kwargs["json"]["valid_principals"] == "ablack,root,operator"
         assert kwargs["json"]["ttl"] == "70080h"
+        assert "extensions" in kwargs["json"]
+        exts = kwargs["json"]["extensions"]
+        assert "permit-pty" in exts
+        assert "permit-agent-forwarding" in exts
+        assert "permit-port-forwarding" in exts
+        assert "permit-user-rc" in exts
+        assert "permit-X11-forwarding" in exts
         assert kwargs["verify"] is False
+
+
+def test_sign_ssh_public_key_operator_role(mock_openbao):
+    with patch.object(mock_openbao.session, "post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {
+                "serial_number": "999888",
+                "signed_key": "ssh-ed25519-cert-v01@openssh.com AAAA... mock_cert",
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        res = mock_openbao.sign_ssh_public_key(
+            public_key="ssh-ed25519 AAAAB3... op_pub",
+            key_id="operator",
+            principals=["operator"],
+            ttl="70080h",
+            role="operator-user",
+        )
+        assert res["serial_number"] == "999888"
+        args, kwargs = mock_post.call_args
+        assert args[0] == "https://secrets.example.com:8200/v1/ssh/sign/operator-user"
+        exts = kwargs["json"]["extensions"]
+        assert "permit-pty" in exts
+        assert "permit-agent-forwarding" in exts
+        assert "permit-port-forwarding" in exts
+        assert "permit-user-rc" in exts
+        assert "permit-X11-forwarding" not in exts
