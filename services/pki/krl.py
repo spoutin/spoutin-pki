@@ -18,6 +18,30 @@ logger = logging.getLogger(__name__)
 KRL_MAGIC = b"SSHKRL\n"
 
 
+def normalize_serial(serial: Any) -> Optional[str]:
+    """Normalizes a serial number (decimal or hex string/int) into a valid ssh-keygen decimal string."""
+    if serial is None:
+        return None
+    s = str(serial).strip()
+    if not s:
+        return None
+    try:
+        if s.startswith(("0x", "0X")):
+            val = int(s, 16)
+        elif s.isdigit():
+            val = int(s, 10)
+        else:
+            # Hex string without 0x prefix (e.g. OpenBao '5a72a8b08fcbd083')
+            val = int(s, 16)
+
+        if val <= 0:
+            return None
+        return str(val)
+    except ValueError:
+        logger.warning("Could not parse serial number as integer or hex: %r", serial)
+        return None
+
+
 def generate_krl(ca_public_key: str, revoked_items: list[dict[str, Any]]) -> bytes:
     """Compiles and self-verifies a binary OpenSSH Key Revocation List (KRL).
 
@@ -43,11 +67,9 @@ def generate_krl(ca_public_key: str, revoked_items: list[dict[str, Any]]) -> byt
         spec_path = os.path.join(td, "krl-spec.txt")
         with open(spec_path, "w") as f:
             for item in revoked_items:
-                serial = item.get("serial_number")
-                if serial:
-                    clean_serial = str(serial).strip()
-                    if clean_serial:
-                        f.write(f"serial: {clean_serial}\n")
+                norm_serial = normalize_serial(item.get("serial_number"))
+                if norm_serial:
+                    f.write(f"serial: {norm_serial}\n")
 
         krl_path = os.path.join(td, "revoked.krl")
         cmd = ["ssh-keygen", "-k", "-f", krl_path, "-s", ca_pub_path, spec_path]
@@ -89,13 +111,15 @@ def format_revoked_keys_text(revoked_items: list[dict[str, Any]]) -> str:
         return "\n".join(lines) + "\n"
 
     for item in revoked_items:
-        serial = item.get("serial_number", "unknown")
+        raw_serial = item.get("serial_number", "unknown")
+        norm_serial = normalize_serial(raw_serial)
+        serial_str = f"{raw_serial} (decimal: {norm_serial})" if norm_serial and norm_serial != str(raw_serial) else str(raw_serial)
         key_id = item.get("key_id", "unknown")
         principals = item.get("principals", "")
         cert = item.get("certificate", "").strip()
         pubkey = item.get("public_key", "").strip()
 
-        lines.append(f"# Serial: {serial} | Key ID: {key_id} | Principals: {principals}")
+        lines.append(f"# Serial: {serial_str} | Key ID: {key_id} | Principals: {principals}")
         if cert:
             lines.append(cert)
         elif pubkey:

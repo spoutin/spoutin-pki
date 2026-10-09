@@ -98,6 +98,30 @@ def test_krl_with_revoked_serial(test_keys):
         assert "ok" in res2.stdout
 
 
+def test_krl_with_hex_serial_without_prefix(test_keys):
+    """Verifies that OpenBao raw hex serials like '5a72a8b08fcbd083' or '3e9' work properly."""
+    # 1001 in hex is 0x3e9 (or '3e9')
+    revoked_list = [
+        {
+            "serial_number": "5a72a8b08fcbd083",
+            "key_id": "user_hex",
+        },
+        {
+            "serial_number": "3e9",
+            "key_id": "user1",
+        },
+    ]
+    krl_bytes = generate_krl(test_keys["ca_pub"], revoked_list)
+    assert krl_bytes.startswith(b"SSHKRL\n")
+
+    with tempfile.NamedTemporaryFile(suffix=".krl") as tf:
+        tf.write(krl_bytes)
+        tf.flush()
+        res1 = subprocess.run(["ssh-keygen", "-Q", "-f", tf.name, test_keys["cert1_path"]], capture_output=True, text=True)
+        assert res1.returncode == 1
+        assert "REVOKED" in res1.stdout
+
+
 def test_format_revoked_keys_text(test_keys):
     """Verifies plain-text revoked-keys formatter."""
     revoked_list = [

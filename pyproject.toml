@@ -1,6 +1,6 @@
 [project]
 name = "spoutin-pki"
-version = "0.3.3"
+version = "0.3.4"
 description = "Spoutin Network PKI Certificate Portal (802.1X Wi-Fi & OpenSSH CA)"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Script to assemble Spoutin PKI Debian (.deb) package
-VERSION="${1:-0.3.3}"
+VERSION="${1:-0.3.4}"
 ARCH="${2:-amd64}"
 
 # Strip leading 'v' from version if present
