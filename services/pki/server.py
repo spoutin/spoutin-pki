@@ -44,6 +44,7 @@ from services.pki.radius_client import FreeRadiusClient
 from services.pki.slack_handler import SlackEnrollmentHandler
 from services.pki.state_manager import StateManager
 from services.pki.step_client import StepCaClient
+from services.pki.krl import KrlManager, generate_krl, format_revoked_keys_text
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -253,7 +254,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin PKI Certificate Portal & Admin Dashboard",
-        version="0.3.2",
+        version="0.3.3",
         lifespan=lifespan,
     )
 
@@ -295,6 +296,7 @@ def create_app(
     app.state.radius_client = rc
     app.state.database = db
     app.state.broadcaster = bc
+    app.state.krl_manager = KrlManager()
 
     # Mount static assets if directory exists
     if os.path.exists(static_dir):
@@ -362,6 +364,57 @@ def create_app(
         except Exception as e:
             logger.error(f"Failed to fetch SSH CA public key: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to retrieve SSH CA public key")
+
+    @app.get("/ssh-krl")
+    def get_ssh_krl_endpoint(request: Request):
+        """Public endpoint serving the OpenSSH Key Revocation List (KRL) binary."""
+        client = app.state.ca_client or getattr(app.state, "step_client", None)
+        if not client or not hasattr(client, "get_ssh_ca_public_key"):
+            raise HTTPException(status_code=503, detail="OpenBao SSH CA is not configured or unavailable")
+        try:
+            ca_pub = client.get_ssh_ca_public_key()
+            revoked_certs = db.list_ssh_certificates(status="REVOKED")
+            krl_mgr: Optional[KrlManager] = getattr(app.state, "krl_manager", None)
+            if krl_mgr:
+                krl_bytes, etag = krl_mgr.get_krl(ca_pub, revoked_certs)
+            else:
+                krl_bytes = generate_krl(ca_pub, revoked_certs)
+                etag = f'"{hashlib.sha256(krl_bytes).hexdigest()}"'
+
+            if_none_match = request.headers.get("if-none-match")
+            if if_none_match and if_none_match.strip() == etag:
+                return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "public, no-cache"})
+
+            headers = {
+                "ETag": etag,
+                "Cache-Control": "public, no-cache",
+                "Content-Disposition": 'attachment; filename="krl"',
+            }
+            return Response(content=krl_bytes, media_type="application/octet-stream", headers=headers)
+        except Exception as e:
+            logger.error(f"Failed to generate OpenSSH KRL: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to generate OpenSSH KRL: {e}")
+
+    @app.get("/ssh-revoked-keys", response_class=PlainTextResponse)
+    def get_ssh_revoked_keys_endpoint(request: Request):
+        """Public endpoint serving the plain-text OpenSSH revoked keys list."""
+        try:
+            revoked_certs = db.list_ssh_certificates(status="REVOKED")
+            text_content = format_revoked_keys_text(revoked_certs)
+            etag = f'"{hashlib.sha256(text_content.encode("utf-8")).hexdigest()}"'
+
+            if_none_match = request.headers.get("if-none-match")
+            if if_none_match and if_none_match.strip() == etag:
+                return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "public, no-cache"})
+
+            headers = {
+                "ETag": etag,
+                "Cache-Control": "public, no-cache",
+            }
+            return PlainTextResponse(content=text_content, media_type="text/plain; charset=utf-8", headers=headers)
+        except Exception as e:
+            logger.error(f"Failed to format OpenSSH revoked keys: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to format OpenSSH revoked keys: {e}")
 
     @app.get("/api/ssh/config")
     def get_ssh_config_endpoint():
@@ -1054,6 +1107,9 @@ def create_app(
         success = db.revoke_ssh_certificate(serial)
         if not success:
             raise HTTPException(status_code=404, detail="SSH certificate not found")
+        krl_mgr: Optional[KrlManager] = getattr(app.state, "krl_manager", None)
+        if krl_mgr:
+            krl_mgr.invalidate()
         return {"status": "ok", "serial_number": serial}
 
     return app
