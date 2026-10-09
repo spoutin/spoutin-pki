@@ -439,6 +439,86 @@ class SlackEnrollmentHandler:
         )
         return resp.get("ts", "")
 
+    def send_ssh_krl_failure_alert(
+        self,
+        error_detail: str,
+        context: str = "",
+    ) -> Optional[str]:
+        """Posts an operational alert to Slack when OpenSSH KRL generation fails."""
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🚨 OpenSSH KRL Generation Failed",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Context:*\n{context or 'Routine generation'}"},
+                    {"type": "mrkdwn", "text": "*Impact:*\nServers cannot sync updated revocation list"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Error:*\n```{error_detail}```",
+                },
+            },
+        ]
+        try:
+            resp = self.app.client.chat_postMessage(
+                channel=self.channel_id,
+                text=f"🚨 [Spoutin PKI Alert] OpenSSH KRL Generation Failed: {error_detail}",
+                blocks=blocks,
+            )
+            return resp.get("ts", "")
+        except Exception as e:
+            logger.error(f"Failed to post KRL failure alert to Slack: {e}")
+            return None
+
+    def send_ssh_revocation_notification(
+        self,
+        serial_number: str,
+        revoked_by: str,
+        reason: str = "",
+    ) -> Optional[str]:
+        """Posts notification to Slack when an SSH certificate is revoked."""
+        fields = [
+            {"type": "mrkdwn", "text": f"*Serial Number:*\n`{serial_number}`"},
+            {"type": "mrkdwn", "text": f"*Revoked By:*\n{revoked_by}"},
+        ]
+        if reason:
+            fields.append({"type": "mrkdwn", "text": f"*Reason:*\n{reason}"})
+
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🚫 SSH Certificate Revoked",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "fields": fields,
+            },
+        ]
+        try:
+            resp = self.app.client.chat_postMessage(
+                channel=self.channel_id,
+                text=f"🚫 [Spoutin PKI] SSH Certificate Revoked (Serial: {serial_number})",
+                blocks=blocks,
+            )
+            return resp.get("ts", "")
+        except Exception as e:
+            logger.error(f"Failed to post SSH revocation to Slack: {e}")
+            return None
+
     def build_ssh_edit_modal(self, req: dict) -> dict:
         """Constructs interactive Slack modal to edit Key ID, principals, device name, and TTL prior to approval."""
         return {

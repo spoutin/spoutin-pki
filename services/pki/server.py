@@ -393,6 +393,9 @@ def create_app(
             return Response(content=krl_bytes, media_type="application/octet-stream", headers=headers)
         except Exception as e:
             logger.error(f"Failed to generate OpenSSH KRL: {e}", exc_info=True)
+            sh = getattr(app.state, "slack_handler", None)
+            if sh and hasattr(sh, "send_ssh_krl_failure_alert"):
+                sh.send_ssh_krl_failure_alert(str(e), "Public endpoint GET /ssh-krl")
             raise HTTPException(status_code=500, detail=f"Failed to generate OpenSSH KRL: {e}")
 
     @app.get("/ssh-revoked-keys", response_class=PlainTextResponse)
@@ -1107,9 +1110,33 @@ def create_app(
         success = db.revoke_ssh_certificate(serial)
         if not success:
             raise HTTPException(status_code=404, detail="SSH certificate not found")
+
         krl_mgr: Optional[KrlManager] = getattr(app.state, "krl_manager", None)
         if krl_mgr:
             krl_mgr.invalidate()
+
+        sh = getattr(app.state, "slack_handler", None)
+        admin_email = admin.get("email", "admin")
+
+        # Test pre-generation of KRL to verify compilation and alert on failure
+        client = app.state.ca_client or getattr(app.state, "step_client", None)
+        if client and hasattr(client, "get_ssh_ca_public_key"):
+            try:
+                ca_pub = client.get_ssh_ca_public_key()
+                revoked_certs = db.list_ssh_certificates(status="REVOKED")
+                if krl_mgr:
+                    krl_mgr.get_krl(ca_pub, revoked_certs)
+                else:
+                    generate_krl(ca_pub, revoked_certs)
+            except Exception as e:
+                logger.error(f"KRL pre-compilation failed after revoking serial {serial}: {e}", exc_info=True)
+                if sh and hasattr(sh, "send_ssh_krl_failure_alert"):
+                    sh.send_ssh_krl_failure_alert(str(e), f"Revoking SSH certificate serial {serial}")
+
+        # Post revocation notification to Slack
+        if sh and hasattr(sh, "send_ssh_revocation_notification"):
+            sh.send_ssh_revocation_notification(serial, admin_email)
+
         return {"status": "ok", "serial_number": serial}
 
     return app

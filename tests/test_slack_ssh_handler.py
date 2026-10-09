@@ -128,3 +128,30 @@ def test_ssh_modal_submission_execution(mock_handler):
         certificate="ssh-ed25519-cert-v01@openssh.com AAAA... mockcert",
         serial_number="999111",
     )
+
+
+def test_send_ssh_krl_failure_alert(mock_handler):
+    ts = mock_handler.send_ssh_krl_failure_alert(
+        error_detail="ssh-keygen: corrupted key format",
+        context="Revoking certificate serial 1001",
+    )
+    assert ts == "1700000000.123456"
+    mock_handler.app.client.chat_postMessage.assert_called_once()
+    args, kwargs = mock_handler.app.client.chat_postMessage.call_args
+    assert kwargs["channel"] == "C12345"
+    assert "OpenSSH KRL Generation Failed" in kwargs["text"]
+    assert "corrupted key format" in str(kwargs["blocks"])
+
+
+def test_send_ssh_revocation_notification(mock_handler):
+    ts = mock_handler.send_ssh_revocation_notification(
+        serial_number="1001",
+        revoked_by="admin@spoutin.org",
+        reason="Key compromise",
+    )
+    assert ts == "1700000000.123456"
+    mock_handler.app.client.chat_postMessage.assert_called_once()
+    args, kwargs = mock_handler.app.client.chat_postMessage.call_args
+    assert kwargs["channel"] == "C12345"
+    assert "SSH Certificate Revoked" in kwargs["text"]
+    assert "1001" in str(kwargs["blocks"])
