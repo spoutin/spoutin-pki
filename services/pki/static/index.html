@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spoutin PKI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/styles.css?v=0.3.4">
+  <link rel="stylesheet" href="/static/styles.css?v=0.3.5">
 </head>
 <body>
   <div class="container">
@@ -107,7 +107,13 @@
             </div>
           </div>
 
-          <a id="manual-download-btn" href="#" class="btn" style="margin-top: 1rem;">⬇️ Download Wi-Fi Certificate (.p12)</a>
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem;">
+            <a id="manual-download-btn" href="#" class="btn" style="flex: 1 1 auto; text-align: center;">⬇️ Download Wi-Fi Certificate (.p12)</a>
+            <a id="legacy-download-btn" href="#" class="btn btn-secondary" style="flex: 1 1 auto; text-align: center;" title="Compatibility mode using 3DES encryption for older Android / Samsung Galaxy S10 devices">📱 Older Android / Samsung (.p12)</a>
+          </div>
+          <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted, #888); text-align: center;">
+            Having trouble importing on an older phone? Use the <strong>Older Android / Samsung (.p12)</strong> format.
+          </p>
         </div>
 
         <!-- Rejected / Expired View -->
@@ -252,6 +258,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=0.3.4"></script>
+  <script src="/static/app.js?v=0.3.5"></script>
 </body>
 </html>

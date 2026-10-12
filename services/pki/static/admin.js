@@ -442,7 +442,8 @@
 
       const reasonDisplay = c.revocation_reason_label || formatRevocationReason(c.revocation_reason);
       const downloadBtnHtml = (!isRevoked && c.download_available)
-        ? `<a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download" class="btn-sm btn-download" title="Download .p12 certificate bundle (available for 24h)">⬇️ .p12</a>`
+        ? `<a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download" class="btn-sm btn-download" title="Download standard AES-256 .p12 certificate bundle (available for 24h)">⬇️ .p12</a>
+           <a href="/api/admin/certificates/${encodeURIComponent(c.serial_number)}/download?legacy=true" class="btn-sm btn-download" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3);" title="Download legacy 3DES .p12 certificate bundle (for older Android / Samsung Galaxy S10)">📱 Legacy</a>`
         : "";
       const actionHtml = isRevoked
         ? `<span class="badge" style="font-size: 0.72rem; font-weight: normal; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); white-space: nowrap;" title="Revocation Reason: ${escapeHtml(c.revocation_reason || 'Revoked')}">${escapeHtml(reasonDisplay)}</span>`

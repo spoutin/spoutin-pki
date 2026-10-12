@@ -1,3 +1,4 @@
+import logging
 import secrets
 import threading
 import time
@@ -6,6 +7,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from services.pki.models import DevicePlatform, EnrollmentStatus, VlanOption
+from services.pki.p12_utils import convert_p12_to_legacy
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -132,7 +136,7 @@ class StateManager:
             record.error_message = reason
             return True
 
-    def get_download(self, download_token: str) -> Optional[tuple[bytes, str]]:
+    def get_download(self, download_token: str, legacy: bool = False) -> Optional[tuple[bytes, str]]:
         """Time-based download retrieval: returns (p12_bytes, filename) if within 24h approval window."""
         with self._lock:
             req_id = self._token_to_id.get(download_token)
@@ -143,14 +147,27 @@ class StateManager:
             if not record or not record.p12_data or time.time() > record.expires_at:
                 return None
 
-            filename = f"{record.approved_name or record.device_name}.p12"
+            base_name = record.approved_name or record.device_name
+            if legacy:
+                try:
+                    p12_bytes = convert_p12_to_legacy(
+                        record.p12_data,
+                        pin=record.pin or "0000",
+                        friendly_name=base_name,
+                    )
+                    return p12_bytes, f"{base_name}-legacy.p12"
+                except Exception as e:
+                    logger.error(f"Failed to convert p12 to legacy format for token {download_token}: {e}", exc_info=True)
+                    return record.p12_data, f"{base_name}.p12"
+
+            filename = f"{base_name}.p12"
             return record.p12_data, filename
 
-    def consume_download(self, download_token: str) -> Optional[tuple[bytes, str]]:
+    def consume_download(self, download_token: str, legacy: bool = False) -> Optional[tuple[bytes, str]]:
         """Backwards-compatible download retrieval alias (non-destructive, time-based)."""
-        return self.get_download(download_token)
+        return self.get_download(download_token, legacy=legacy)
 
-    def get_download_by_serial(self, serial_number: str) -> Optional[tuple[bytes, str]]:
+    def get_download_by_serial(self, serial_number: str, legacy: bool = False) -> Optional[tuple[bytes, str]]:
         """Retrieve .p12 certificate bundle by serial number if within 24h approval window."""
         with self._lock:
             req_id = self._serial_to_id.get(serial_number)
@@ -161,7 +178,20 @@ class StateManager:
             if not record or not record.p12_data or time.time() > record.expires_at:
                 return None
 
-            filename = f"{record.approved_name or record.device_name}.p12"
+            base_name = record.approved_name or record.device_name
+            if legacy:
+                try:
+                    p12_bytes = convert_p12_to_legacy(
+                        record.p12_data,
+                        pin=record.pin or "0000",
+                        friendly_name=base_name,
+                    )
+                    return p12_bytes, f"{base_name}-legacy.p12"
+                except Exception as e:
+                    logger.error(f"Failed to convert p12 to legacy format for serial {serial_number}: {e}", exc_info=True)
+                    return record.p12_data, f"{base_name}.p12"
+
+            filename = f"{base_name}.p12"
             return record.p12_data, filename
 
     def has_download_by_serial(self, serial_number: str) -> bool:

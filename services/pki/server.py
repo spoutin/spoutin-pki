@@ -254,7 +254,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin PKI Certificate Portal & Admin Dashboard",
-        version="0.3.4",
+        version="0.3.5",
         lifespan=lifespan,
     )
 
@@ -555,8 +555,8 @@ def create_app(
         )
 
     @app.get("/api/download/{download_token}")
-    def download_bundle(download_token: str):
-        result = sm.get_download(download_token)
+    def download_bundle(download_token: str, legacy: bool = False):
+        result = sm.get_download(download_token, legacy=legacy)
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -833,8 +833,9 @@ def create_app(
         return certs
 
     @app.get("/api/admin/certificates/{serial}/download")
-    def admin_download_certificate(
+    def download_certificate_by_serial(
         serial: str,
+        legacy: bool = False,
         admin: dict = Depends(require_admin),
     ):
         cert = db.get_certificate(serial)
@@ -844,7 +845,7 @@ def create_app(
         if cert.get("status") == "REVOKED":
             raise HTTPException(status_code=400, detail="Certificate has been revoked.")
 
-        result = sm.get_download_by_serial(serial)
+        result = sm.get_download_by_serial(serial, legacy=legacy)
         if not result:
             raise HTTPException(
                 status_code=404,

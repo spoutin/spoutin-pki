@@ -18,6 +18,7 @@
   const platformInstructions = document.getElementById("platform-instructions");
   const instructionPlatformSelect = document.getElementById("instruction-platform-select");
   const manualDownloadBtn = document.getElementById("manual-download-btn");
+  const legacyDownloadBtn = document.getElementById("legacy-download-btn");
 
   const rejectTitle = document.getElementById("reject-title");
   const rejectReason = document.getElementById("reject-reason");
@@ -257,6 +258,11 @@
       const dlUrl = `/api/download/${data.download_token}`;
       manualDownloadBtn.href = dlUrl;
       manualDownloadBtn.setAttribute("download", `${data.radius_identity || data.device_name}.p12`);
+
+      if (legacyDownloadBtn) {
+        legacyDownloadBtn.href = `${dlUrl}?legacy=true`;
+        legacyDownloadBtn.setAttribute("download", `${data.radius_identity || data.device_name}-legacy.p12`);
+      }
     }
 
     showView(approvedView);
