@@ -371,3 +371,44 @@ To enable automatic, zero-disk-wear CRL synchronization on your OPNsense firewal
    * On its first run, it automatically imports the CRL into OPNsense's Trust Store (**System → Trust → Revocation**), wires it into **Services → FreeRADIUS → EAP**, and reloads the service—requiring **zero manual GUI clicks**.
    * On subsequent runs, it uses HTTP `ETag` and `304 Not Modified` in RAM (`/tmp`). FreeRADIUS is only reloaded when a certificate is actually revoked.
 
+---
+
+### 5. OpenSSH Certificate Authority & Key Revocation List (KRL)
+
+In addition to Wi-Fi EAP-TLS X.509 certificates, Spoutin PKI operates as an OpenSSH Certificate Authority backed by OpenBao:
+
+#### Public Endpoints
+* **`https://wifi.int.spoutin.org/ssh-ca.pub`**: Public CA key used in `TrustedUserCAKeys`.
+* **`https://wifi.int.spoutin.org/ssh-krl`**: Binary OpenSSH Key Revocation List (KRL) with HTTP `ETag` and `304 Not Modified` caching. Used by `sshd` via `RevokedKeys`.
+* **`https://wifi.int.spoutin.org/ssh-revoked-keys`**: Human-readable plain-text list of revoked certificates and keys.
+
+Inspect the active KRL:
+```bash
+curl -s https://wifi.int.spoutin.org/ssh-krl -o /tmp/krl
+ssh-keygen -Q -l -f /tmp/krl
+```
+
+#### Automated Fleet Distribution via fleet-ansible
+Fleet-wide distribution of `/etc/ssh/revoked-keys.krl` is automated by **[fleet-ansible](https://github.com/spoutin/fleet-ansible)**:
+1. **Automated Background Sync (`fleet-ansible.timer`)**:
+   - Runs periodically via systemd timer on the Ansible control LXC.
+   - Downloads the latest KRL from `https://wifi.int.spoutin.org/ssh-krl`.
+   - Distributes `/etc/ssh/revoked-keys.krl` across all managed servers and injects it into Proxmox LXCs/VMs.
+2. **Manual Sync**:
+   ```bash
+   fleet-ansible install-pki
+   ```
+3. **Host Enforcement (`sshd_config.d/60-pki-ssh-ca.conf`)**:
+   ```ssh-config
+   TrustedUserCAKeys /etc/ssh/trusted-user-ca-keys.pub
+   RevokedKeys /etc/ssh/revoked-keys.krl
+   ```
+   When a user attempts to log in with a revoked certificate, `sshd` rejects the connection instantly before any session is opened.
+
+---
+
+### 6. Device Compatibility: Modern vs. Legacy .p12 Bundles
+
+* **Standard .p12**: Uses modern PBES2 (AES-256-CBC) encryption for iOS, macOS, Windows 11, and modern Android.
+* **Legacy .p12 (3DES)**: Available via the **Older Android / Samsung (.p12)** download button or `?legacy=true` query parameter for older devices (e.g. Samsung Galaxy S10 / Android < 11) whose keystore only supports PBES1 3DES/SHA1.
+
