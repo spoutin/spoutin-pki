@@ -146,6 +146,40 @@ def calculate_ssh_fingerprint(public_key: str) -> str:
     return f"SHA256:{hashlib.sha256(public_key.strip().encode()).hexdigest()[:32]}"
 
 
+class GuestAuthorizedBody(BaseModel):
+    mac: str
+    name: str
+    reason: str
+    duration_minutes: int = 1440
+    approved_by: str = "admin"
+    approved_at: int
+    expires_at: int
+
+
+def resolve_internal_secret(ca_client=None) -> str:
+    """Resolves the internal secret from OpenBao KV or environment fallback."""
+    if ca_client and hasattr(ca_client, "get_internal_secret"):
+        val = ca_client.get_internal_secret(
+            path=settings.OPENBAO_GUEST_SECRET_PATH,
+            key=settings.OPENBAO_GUEST_SECRET_KEY,
+        )
+        if val:
+            return val
+    return settings.INTERNAL_API_SECRET
+
+
+def get_unifi_client() -> "UnifiControllerClient":
+    from services.pki.unifi_client import UnifiControllerClient
+    return UnifiControllerClient(
+        url=settings.UNIFI_CONTROLLER_URL,
+        api_key=settings.UNIFI_API_KEY,
+        username=settings.UNIFI_USERNAME,
+        password=settings.UNIFI_PASSWORD,
+        site=settings.UNIFI_SITE,
+        verify_ssl=settings.UNIFI_VERIFY_SSL,
+    )
+
+
 REVOCATION_REASON_LABELS = {
     "cessationOfOperation": "Decommissioned / Retired",
     "keyCompromise": "Key Compromise",
@@ -1139,6 +1173,104 @@ def create_app(
             sh.send_ssh_revocation_notification(serial, admin_email)
 
         return {"status": "ok", "serial_number": serial}
+
+    # ================= GUEST WI-FI ROUTES =================
+
+    @app.post("/api/internal/guest-authorized")
+    def internal_guest_authorized(
+        body: GuestAuthorizedBody,
+        request: Request,
+    ):
+        expected_secret = resolve_internal_secret(app.state.ca_client)
+        provided_secret = request.headers.get("X-Internal-Secret", "").strip()
+
+        if not expected_secret or provided_secret != expected_secret:
+            raise HTTPException(status_code=401, detail="Unauthorized internal request")
+
+        session_id = db.record_guest_session(
+            mac=body.mac,
+            name=body.name,
+            reason=body.reason,
+            duration_minutes=body.duration_minutes,
+            approved_by=body.approved_by,
+            approved_at=body.approved_at,
+            expires_at=body.expires_at,
+        )
+
+        bc.publish_admin(
+            event="guest_authorized",
+            data={
+                "id": session_id,
+                "mac": body.mac,
+                "name": body.name,
+                "reason": body.reason,
+                "approved_by": body.approved_by,
+                "expires_at": body.expires_at,
+            },
+        )
+        return {"status": "ok", "id": session_id}
+
+    @app.get("/api/admin/guests")
+    def list_admin_guests(admin: dict = Depends(require_admin)):
+        sessions = db.list_guest_sessions(limit=200)
+        unifi = get_unifi_client()
+
+        active_clients = {}
+        guest_auths = {}
+        try:
+            active_clients = unifi.get_active_clients()
+            guest_auths = unifi.get_guest_authorizations()
+        except Exception as e:
+            logger.warning(f"Could not reach UniFi controller for live stats: {e}")
+
+        now = int(time.time())
+        enriched = []
+        for s in sessions:
+            mac = s["mac"].lower()
+            sta = active_clients.get(mac, {})
+            auth = guest_auths.get(mac, {})
+
+            online = bool(sta)
+            ip = sta.get("ip") or auth.get("ip", "")
+            hostname = sta.get("hostname", "")
+
+            # Compute effective expiration
+            expires_at = s["expires_at"]
+            if auth.get("end"):
+                expires_at = auth["end"]
+
+            time_remaining = max(0, expires_at - now)
+
+            status = s["status"]
+            if status == "ACTIVE" and now >= expires_at:
+                status = "EXPIRED"
+
+            enriched.append({
+                **s,
+                "status": status,
+                "online": online,
+                "ip": ip,
+                "hostname": hostname,
+                "time_remaining_seconds": time_remaining,
+            })
+
+        return enriched
+
+    @app.post("/api/admin/guests/{mac}/revoke")
+    def revoke_admin_guest(mac: str, admin: dict = Depends(require_admin)):
+        norm_mac = mac.lower().strip()
+        admin_name = admin.get("email") or admin.get("name", "admin")
+
+        unifi = get_unifi_client()
+        unifi.revoke_guest(norm_mac)
+
+        db.revoke_guest_session(norm_mac, revoked_by=admin_name)
+
+        bc.publish_admin(
+            event="guest_revoked",
+            data={"mac": norm_mac, "revoked_by": admin_name},
+        )
+        return {"status": "revoked", "mac": norm_mac}
 
     return app
 

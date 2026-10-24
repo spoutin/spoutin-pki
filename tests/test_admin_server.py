@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
@@ -439,3 +439,91 @@ def test_admin_sync_radius(admin_test_app):
 
     cert = db.get_certificate("88888")
     assert cert["vlan_id"] == 9
+
+
+def test_internal_guest_authorized_endpoint(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Missing X-Internal-Secret returns 401
+    resp_no_secret = client.post(
+        "/api/internal/guest-authorized",
+        json={
+            "mac": "00:11:22:33:44:55",
+            "name": "Guest Alice",
+            "reason": "Meeting",
+            "duration_minutes": 1440,
+            "approved_by": "admin",
+            "approved_at": 1000,
+            "expires_at": 1000 + 86400,
+        },
+    )
+    assert resp_no_secret.status_code == 401
+
+    # With valid secret
+    with patch("services.pki.server.resolve_internal_secret", return_value="valid-token-123"):
+        resp = client.post(
+            "/api/internal/guest-authorized",
+            headers={"X-Internal-Secret": "valid-token-123"},
+            json={
+                "mac": "00:11:22:33:44:55",
+                "name": "Guest Alice",
+                "reason": "Meeting",
+                "duration_minutes": 1440,
+                "approved_by": "admin",
+                "approved_at": 1000,
+                "expires_at": 1000 + 86400,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["mac"] == "00:11:22:33:44:55"
+    assert sessions[0]["name"] == "Guest Alice"
+
+
+def test_admin_list_and_revoke_guests(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Guest Bob",
+        reason="Vendor",
+        duration_minutes=1440,
+        approved_by="slack_admin",
+        approved_at=1000,
+        expires_at=2000,
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_active_clients.return_value = {
+        "00:11:22:33:44:55": {
+            "ip": "10.0.1.50",
+            "hostname": "Bob-Laptop",
+            "ap_mac": "aa:bb:cc:dd:ee:ff",
+            "is_guest": True,
+        }
+    }
+    mock_unifi.get_guest_authorizations.return_value = {}
+    mock_unifi.revoke_guest.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+        # 1. List guests
+        list_resp = client.get("/api/admin/guests")
+        assert list_resp.status_code == 200
+        guests = list_resp.json()
+        assert len(guests) == 1
+        assert guests[0]["mac"] == "00:11:22:33:44:55"
+        assert guests[0]["online"] is True
+        assert guests[0]["ip"] == "10.0.1.50"
+
+        # 2. Revoke guest
+        revoke_resp = client.post("/api/admin/guests/00:11:22:33:44:55/revoke")
+        assert revoke_resp.status_code == 200
+        assert revoke_resp.json()["status"] == "revoked"
+        mock_unifi.revoke_guest.assert_called_once_with("00:11:22:33:44:55")
+
+    # DB session should now be REVOKED
+    sessions = db.list_guest_sessions()
+    assert sessions[0]["status"] == "REVOKED"
+
