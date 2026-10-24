@@ -59,6 +59,9 @@
         <button id="tab-btn-ssh" class="tab-btn">
           SSH Access
         </button>
+        <button id="tab-btn-guests" class="tab-btn">
+          Guest Wi-Fi <span id="guests-counter" class="counter-badge">0</span>
+        </button>
       </div>
       <div class="sync-group">
         <span class="live-indicator" id="live-indicator" title="Connected to Server-Sent Events (SSE)">
@@ -234,9 +237,66 @@
         </div>
       </div>
     </section>
+
+    <!-- TAB 4: Guest Wi-Fi -->
+    <section id="tab-guests-view" class="hidden">
+      <!-- Toolbar Filters -->
+      <div class="toolbar">
+        <input type="text" id="guests-search" class="search-input" placeholder="Search by name, reason, MAC, or IP...">
+        <select id="filter-guest-status" class="filter-select">
+          <option value="">All Statuses</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="EXPIRED">Expired Only</option>
+          <option value="REVOKED">Revoked Only</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <table id="guests-table">
+          <thead>
+            <tr>
+              <th>Guest / Reason</th>
+              <th>MAC Address</th>
+              <th>IP &amp; Hostname</th>
+              <th>Status</th>
+              <th>Approved By</th>
+              <th>Expires In / Countdown</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="guests-tbody">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+        <div id="guests-empty" class="empty-state hidden">
+          No guest Wi-Fi sessions recorded.
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- ================= MODALS ================= -->
+
+  <!-- Revoke Guest Modal -->
+  <div id="revoke-guest-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Kick &amp; Revoke Guest</h2>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+          Are you sure you want to kick and revoke access for <strong id="modal-guest-name" style="color: var(--text-main);"></strong>?
+        </p>
+        <div style="padding: 0.8rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 0.85rem; color: #ef4444; margin-bottom: 1rem;">
+          ⚠️ This will immediately de-authorize <code id="modal-guest-mac"></code> in UniFi and disconnect them from the Access Point.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-guest-cancel-btn" class="btn-cancel">Cancel</button>
+        <button id="modal-guest-confirm-btn" class="btn-confirm-revoke">Kick &amp; Revoke</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Web Edit & Approve Modal -->
   <div id="edit-approve-modal" class="modal-overlay hidden">

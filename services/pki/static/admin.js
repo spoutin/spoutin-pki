@@ -12,10 +12,27 @@
   const tabBtnRequests = document.getElementById("tab-btn-requests");
   const tabBtnInventory = document.getElementById("tab-btn-inventory");
   const tabBtnSsh = document.getElementById("tab-btn-ssh");
+  const tabBtnGuests = document.getElementById("tab-btn-guests");
   const tabRequestsView = document.getElementById("tab-requests-view");
   const tabInventoryView = document.getElementById("tab-inventory-view");
   const tabSshView = document.getElementById("tab-ssh-view");
+  const tabGuestsView = document.getElementById("tab-guests-view");
   const pendingCounter = document.getElementById("pending-counter");
+  const guestsCounter = document.getElementById("guests-counter");
+
+  // Guest Wi-Fi elements
+  const guestsTbody = document.getElementById("guests-tbody");
+  const guestsEmpty = document.getElementById("guests-empty");
+  const guestsSearch = document.getElementById("guests-search");
+  const filterGuestStatus = document.getElementById("filter-guest-status");
+  const revokeGuestModal = document.getElementById("revoke-guest-modal");
+  const modalGuestName = document.getElementById("modal-guest-name");
+  const modalGuestMac = document.getElementById("modal-guest-mac");
+  const modalGuestCancelBtn = document.getElementById("modal-guest-cancel-btn");
+  const modalGuestConfirmBtn = document.getElementById("modal-guest-confirm-btn");
+  let activeRevokeGuestMac = null;
+  let cachedGuests = [];
+  let guestCountdownInterval = null;
 
   const adminQuickSignForm = document.getElementById("admin-quick-sign-form");
   const qsResult = document.getElementById("qs-result");
@@ -147,9 +164,11 @@
     tabBtnRequests.classList.remove("active");
     tabBtnInventory.classList.remove("active");
     if (tabBtnSsh) tabBtnSsh.classList.remove("active");
+    if (tabBtnGuests) tabBtnGuests.classList.remove("active");
     tabRequestsView.classList.add("hidden");
     tabInventoryView.classList.add("hidden");
     if (tabSshView) tabSshView.classList.add("hidden");
+    if (tabGuestsView) tabGuestsView.classList.add("hidden");
 
     if (tabName === "requests") {
       tabBtnRequests.classList.add("active");
@@ -161,6 +180,10 @@
       if (tabBtnSsh) tabBtnSsh.classList.add("active");
       if (tabSshView) tabSshView.classList.remove("hidden");
       refreshSshData();
+    } else if (tabName === "guests") {
+      if (tabBtnGuests) tabBtnGuests.classList.add("active");
+      if (tabGuestsView) tabGuestsView.classList.remove("hidden");
+      refreshGuests();
     }
   }
 
@@ -191,6 +214,8 @@
     adminEventSource.addEventListener("cert_revoked", onServerUpdate);
     adminEventSource.addEventListener("cert_vlan_updated", onServerUpdate);
     adminEventSource.addEventListener("vlan_synced", onServerUpdate);
+    adminEventSource.addEventListener("guest_authorized", onServerUpdate);
+    adminEventSource.addEventListener("guest_revoked", onServerUpdate);
 
     adminEventSource.onerror = () => {
       if (liveText) liveText.textContent = "Connecting...";
@@ -759,6 +784,180 @@
   if (tabBtnSsh) {
     tabBtnSsh.addEventListener("click", () => {
       switchToTab("ssh");
+    });
+  }
+
+  if (tabBtnGuests) {
+    tabBtnGuests.addEventListener("click", () => {
+      switchToTab("guests");
+    });
+  }
+
+  async function refreshGuests() {
+    try {
+      const resp = await adminFetch("/api/admin/guests");
+      if (!resp.ok) return [];
+      const guests = await resp.json();
+      cachedGuests = guests;
+      if (guestsCounter) guestsCounter.textContent = guests.length;
+
+      renderGuestsTable();
+      startGuestCountdownTimer();
+      return guests;
+    } catch (e) {
+      console.error("Guests refresh failed", e);
+      return [];
+    }
+  }
+
+  function formatCountdown(seconds) {
+    if (seconds <= 0) return `<span style="color: var(--danger); font-weight: 600;">Expired</span>`;
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    let parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0 || days > 0) parts.push(`${hours}h`);
+    parts.push(`${minutes}m`);
+    parts.push(`${secs}s`);
+    return parts.join(" ");
+  }
+
+  function renderGuestsTable() {
+    if (!guestsTbody) return;
+    guestsTbody.innerHTML = "";
+
+    const query = (guestsSearch ? guestsSearch.value.trim().toLowerCase() : "");
+    const statusFilter = (filterGuestStatus ? filterGuestStatus.value : "");
+
+    const filtered = cachedGuests.filter((g) => {
+      if (statusFilter && g.status !== statusFilter) return false;
+      if (query) {
+        const text = `${g.name || ""} ${g.reason || ""} ${g.mac || ""} ${g.ip || ""} ${g.hostname || ""}`.toLowerCase();
+        if (!text.includes(query)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      if (guestsEmpty) guestsEmpty.classList.remove("hidden");
+      return;
+    }
+    if (guestsEmpty) guestsEmpty.classList.add("hidden");
+
+    filtered.forEach((g) => {
+      const tr = document.createElement("tr");
+
+      // Online status indicator
+      let onlineDot = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#9ca3af; margin-right:6px;" title="Offline"></span>`;
+      let statusBadge = `<span class="badge" style="background: rgba(107, 114, 128, 0.15); color: #6b7280;">${escapeHtml(g.status)}</span>`;
+
+      if (g.status === "ACTIVE") {
+        if (g.online) {
+          onlineDot = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981; margin-right:6px;" title="Connected &amp; Active"></span>`;
+          statusBadge = `<span class="badge badge-active">${onlineDot}Online</span>`;
+        } else {
+          onlineDot = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308; margin-right:6px;" title="Authorized (Idle)"></span>`;
+          statusBadge = `<span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">${onlineDot}Idle</span>`;
+        }
+      } else if (g.status === "REVOKED") {
+        statusBadge = `<span class="badge badge-revoked">Revoked</span>`;
+      } else if (g.status === "EXPIRED") {
+        statusBadge = `<span class="badge badge-expired">Expired</span>`;
+      }
+
+      const ipInfo = g.ip ? `<code>${escapeHtml(g.ip)}</code>` : `<span style="color:var(--text-muted);">-</span>`;
+      const hostInfo = g.hostname ? `<div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(g.hostname)}</div>` : "";
+
+      const countdownHtml = (g.status === "REVOKED")
+        ? `<span style="color:var(--text-muted);">Revoked</span>`
+        : `<span class="guest-countdown" data-expires="${g.expires_at}">${formatCountdown(g.time_remaining_seconds)}</span>`;
+
+      const actionBtn = (g.status === "ACTIVE")
+        ? `<button class="btn-sm btn-reject" data-action="kick-guest" data-mac="${escapeHtml(g.mac)}" data-name="${escapeHtml(g.name)}">🚫 Kick &amp; Revoke</button>`
+        : `<span style="color:var(--text-muted); font-size:0.8rem;">Completed</span>`;
+
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:600; color:var(--text-main);">${escapeHtml(g.name)}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(g.reason)}</div>
+        </td>
+        <td><code>${escapeHtml(g.mac)}</code></td>
+        <td>${ipInfo}${hostInfo}</td>
+        <td>${statusBadge}</td>
+        <td>
+          <div style="font-size:0.85rem;">@${escapeHtml(g.approved_by || "admin")}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">${formatDateTime(g.approved_at)}</div>
+        </td>
+        <td>${countdownHtml}</td>
+        <td>${actionBtn}</td>
+      `;
+      guestsTbody.appendChild(tr);
+    });
+  }
+
+  function startGuestCountdownTimer() {
+    if (guestCountdownInterval) clearInterval(guestCountdownInterval);
+    guestCountdownInterval = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000);
+      document.querySelectorAll(".guest-countdown").forEach((el) => {
+        const exp = parseInt(el.dataset.expires, 10);
+        if (!isNaN(exp)) {
+          const rem = Math.max(0, exp - now);
+          el.innerHTML = formatCountdown(rem);
+        }
+      });
+    }, 1000);
+  }
+
+  if (guestsSearch) {
+    guestsSearch.addEventListener("input", renderGuestsTable);
+  }
+  if (filterGuestStatus) {
+    filterGuestStatus.addEventListener("change", renderGuestsTable);
+  }
+
+  // Guests Actions (Revoke / Kick)
+  if (guestsTbody) {
+    guestsTbody.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-action='kick-guest']");
+      if (!btn) return;
+      const mac = btn.dataset.mac;
+      const name = btn.dataset.name;
+      activeRevokeGuestMac = mac;
+
+      if (modalGuestName) modalGuestName.textContent = name;
+      if (modalGuestMac) modalGuestMac.textContent = mac;
+      if (revokeGuestModal) revokeGuestModal.classList.remove("hidden");
+    });
+  }
+
+  if (modalGuestCancelBtn) {
+    modalGuestCancelBtn.addEventListener("click", () => {
+      if (revokeGuestModal) revokeGuestModal.classList.add("hidden");
+      activeRevokeGuestMac = null;
+    });
+  }
+
+  if (modalGuestConfirmBtn) {
+    modalGuestConfirmBtn.addEventListener("click", async () => {
+      if (!activeRevokeGuestMac) return;
+      setButtonLoading(modalGuestConfirmBtn, "Revoking...");
+      try {
+        const resp = await adminFetch(`/api/admin/guests/${activeRevokeGuestMac}/revoke`, {
+          method: "POST",
+        });
+        if (!resp.ok) throw new Error("Revocation failed");
+        if (revokeGuestModal) revokeGuestModal.classList.add("hidden");
+        activeRevokeGuestMac = null;
+        await refreshGuests();
+      } catch (err) {
+        alert("Failed to kick/revoke guest: " + err.message);
+      } finally {
+        restoreButton(modalGuestConfirmBtn);
+      }
     });
   }
 
