@@ -126,6 +126,27 @@ class CertificateDatabase:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_requests_status ON ssh_requests(status);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_key_id ON ssh_certificates(key_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ssh_certs_status ON ssh_certificates(status);")
+
+            # Guest Wi-Fi Sessions Table
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guest_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    mac TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    duration_minutes INTEGER NOT NULL,
+                    approved_by TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    approved_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    revoked_at INTEGER,
+                    revoked_by TEXT
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_guest_sessions_mac ON guest_sessions(mac);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_guest_sessions_status ON guest_sessions(status);")
             self._conn.commit()
 
     def insert_certificate(
@@ -503,3 +524,57 @@ class CertificateDatabase:
             )
             self._conn.commit()
             return cur.rowcount > 0
+
+    def record_guest_session(
+        self,
+        mac: str,
+        name: str,
+        reason: str,
+        duration_minutes: int,
+        approved_by: str,
+        approved_at: int,
+        expires_at: int,
+    ) -> int:
+        norm_mac = mac.lower().strip()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO guest_sessions (
+                    mac, name, reason, duration_minutes, approved_by, status, approved_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+                """,
+                (norm_mac, name, reason, duration_minutes, approved_by, approved_at, expires_at),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_guest_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM guest_sessions
+                ORDER BY approved_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def revoke_guest_session(self, mac: str, revoked_by: str) -> bool:
+        norm_mac = mac.lower().strip()
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE guest_sessions
+                SET status = 'REVOKED', revoked_at = ?, revoked_by = ?
+                WHERE mac = ? AND status = 'ACTIVE'
+                """,
+                (now, revoked_by, norm_mac),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+

@@ -202,6 +202,34 @@ def test_request_id_and_device_name_exists(db):
     assert db.device_name_exists("device-req-test") is True
     assert db.device_name_exists("nonexistent-device") is False
 
+
+def test_guest_session_crud(db):
+    now = int(time.time())
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Guest Alice",
+        reason="Consultant",
+        duration_minutes=1440,
+        approved_by="slack_admin",
+        approved_at=now,
+        expires_at=now + 86400,
+    )
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["mac"] == "00:11:22:33:44:55"
+    assert sessions[0]["name"] == "Guest Alice"
+    assert sessions[0]["status"] == "ACTIVE"
+
+    # Revoke session
+    ok = db.revoke_guest_session(mac="00:11:22:33:44:55", revoked_by="admin@example.com")
+    assert ok is True
+
+    updated_sessions = db.list_guest_sessions()
+    assert len(updated_sessions) == 1
+    assert updated_sessions[0]["status"] == "REVOKED"
+    assert updated_sessions[0]["revoked_by"] == "admin@example.com"
+
     # Revoking makes device_name_exists return False
     db.revoke_certificate(serial_number="7777", reason="Retired", scope="CERT_ONLY")
     assert db.device_name_exists("device-req-test") is False
