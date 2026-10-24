@@ -349,3 +349,31 @@ class OpenBaoCaClient:
         if not data.get("signed_key"):
             raise RuntimeError(f"No signed_key returned in OpenBao response: {resp.text}")
         return data
+
+    def get_internal_secret(
+        self,
+        path: str = "secret/data/guest-portal",
+        key: str = "api_secret",
+    ) -> Optional[str]:
+        """Retrieves a KV v2 secret value from OpenBao."""
+        try:
+            token = self._ensure_authenticated()
+            clean_path = path.strip("/")
+            url = f"{self.base_url}/v1/{clean_path}"
+            resp = self.session.get(
+                url,
+                headers={"X-Vault-Token": token},
+                verify=self.verify_ssl,
+                timeout=10,
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            res_data = resp.json().get("data", {})
+            # KV v2 nests inside "data", KV v1 is direct
+            payload = res_data.get("data", res_data)
+            return payload.get(key)
+        except Exception as e:
+            logger.warning(f"Failed to fetch secret '{key}' from OpenBao at '{path}': {e}")
+            return None
+

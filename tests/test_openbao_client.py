@@ -220,3 +220,32 @@ def test_openbao_get_crl():
         assert crl_out == fake_crl
         mock_get.assert_called_once()
         assert "v1/pki/crl/pem" in mock_get.call_args[0][0]
+
+
+def test_openbao_get_internal_secret():
+    client = OpenBaoCaClient(
+        base_url="http://127.0.0.1:8200",
+        token="s.test-token",
+    )
+
+    with patch.object(client.session, "get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {
+                "data": {
+                    "api_secret": "my-secret-key-123"
+                }
+            }
+        }
+        mock_get.return_value = mock_resp
+
+        secret = client.get_internal_secret(path="secret/data/guest-portal", key="api_secret")
+        assert secret == "my-secret-key-123"
+        mock_get.assert_called_once_with(
+            "http://127.0.0.1:8200/v1/secret/data/guest-portal",
+            headers={"X-Vault-Token": "s.test-token"},
+            verify=True,
+            timeout=10,
+        )

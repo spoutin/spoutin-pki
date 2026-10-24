@@ -87,6 +87,20 @@ class Settings(BaseSettings):
     SESSION_SECRET_KEY: str = "spoutin-pki-secret-key-change-me"
     DATABASE_PATH: str = "/opt/pki/data/inventory.db"
 
+    # Internal API Secret for Guest Portal
+    INTERNAL_API_SECRET: str = ""
+    OPENBAO_GUEST_SECRET_PATH: str = "secret/data/guest-portal"
+    OPENBAO_GUEST_SECRET_KEY: str = "api_secret"
+
+    # UniFi Controller Integration
+    UNIFI_CONTROLLER_URL: str = ""
+    UNIFI_API_KEY: str = ""
+    UNIFI_USERNAME: str = ""
+    UNIFI_PASSWORD: str = ""
+    UNIFI_SITE: str = "default"
+    UNIFI_VERIFY_SSL: bool = False
+
+
 
 # Global singleton settings instance
 settings = Settings()
