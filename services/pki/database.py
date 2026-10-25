@@ -147,6 +147,23 @@ class CertificateDatabase:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_guest_sessions_mac ON guest_sessions(mac);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_guest_sessions_status ON guest_sessions(status);")
+
+            # API Integration Tokens Table
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS api_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    token_hash TEXT NOT NULL,
+                    token_prefix TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    last_used_at INTEGER,
+                    revoked_at INTEGER
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);")
             self._conn.commit()
 
     def insert_certificate(
@@ -577,4 +594,95 @@ class CertificateDatabase:
             )
             self._conn.commit()
             return cur.rowcount > 0
+
+    def create_api_token(
+        self,
+        name: str,
+        token_hash: str,
+        token_prefix: str,
+        created_by: str,
+    ) -> int:
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO api_tokens (
+                    name, token_hash, token_prefix, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (name, token_hash, token_prefix, created_by, now),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_api_tokens(self, active_only: bool = False) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.cursor()
+            if active_only:
+                cur.execute(
+                    """
+                    SELECT id, name, token_prefix, created_by, created_at, last_used_at, revoked_at
+                    FROM api_tokens
+                    WHERE revoked_at IS NULL
+                    ORDER BY created_at DESC
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, name, token_prefix, created_by, created_at, last_used_at, revoked_at
+                    FROM api_tokens
+                    ORDER BY created_at DESC
+                    """
+                )
+            return [dict(r) for r in cur.fetchall()]
+
+    def verify_and_touch_token(self, raw_token: str) -> bool:
+        import hashlib
+        import hmac
+
+        if not raw_token:
+            return False
+        token_hash = hashlib.sha256(raw_token.strip().encode()).hexdigest()
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT id, token_hash FROM api_tokens
+                WHERE revoked_at IS NULL
+                """
+            )
+            rows = cur.fetchall()
+            matched_id = None
+            for row in rows:
+                if hmac.compare_digest(row["token_hash"], token_hash):
+                    matched_id = row["id"]
+                    break
+
+            if matched_id is not None:
+                cur.execute(
+                    "UPDATE api_tokens SET last_used_at = ? WHERE id = ?",
+                    (now, matched_id),
+                )
+                self._conn.commit()
+                return True
+            return False
+
+    def revoke_api_token(self, token_id: int) -> bool:
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE api_tokens
+                SET revoked_at = ?
+                WHERE id = ? AND revoked_at IS NULL
+                """,
+                (now, token_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
 

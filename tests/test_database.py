@@ -233,3 +233,46 @@ def test_guest_session_crud(db):
     # Revoking makes device_name_exists return False
     db.revoke_certificate(serial_number="7777", reason="Retired", scope="CERT_ONLY")
     assert db.device_name_exists("device-req-test") is False
+
+
+def test_api_token_crud(db):
+    import hashlib
+
+    raw_token = "spk_test_secret_1234567890abcdef"
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    token_prefix = raw_token[:8]
+
+    token_id = db.create_api_token(
+        name="unifi-guest-portal",
+        token_hash=token_hash,
+        token_prefix=token_prefix,
+        created_by="admin@spoutin.org",
+    )
+    assert token_id > 0
+
+    tokens = db.list_api_tokens()
+    assert len(tokens) == 1
+    assert tokens[0]["name"] == "unifi-guest-portal"
+    assert tokens[0]["token_prefix"] == token_prefix
+    assert "token_hash" not in tokens[0]  # Should not expose hash in list
+    assert tokens[0]["last_used_at"] is None
+
+    # Verify and touch
+    valid = db.verify_and_touch_token(raw_token)
+    assert valid is True
+
+    # Verify last_used_at was updated
+    tokens_after = db.list_api_tokens()
+    assert tokens_after[0]["last_used_at"] is not None
+
+    # Invalid token fails
+    assert db.verify_and_touch_token("spk_invalid_token") is False
+
+    # Revoke token
+    revoked = db.revoke_api_token(token_id)
+    assert revoked is True
+
+    # After revocation, token no longer verifies
+    assert db.verify_and_touch_token(raw_token) is False
+    assert len(db.list_api_tokens(active_only=True)) == 0
+
