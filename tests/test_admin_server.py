@@ -527,3 +527,66 @@ def test_admin_list_and_revoke_guests(admin_test_app):
     sessions = db.list_guest_sessions()
     assert sessions[0]["status"] == "REVOKED"
 
+
+def test_admin_token_management_endpoints(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # 1. Create API token
+    create_resp = client.post(
+        "/api/admin/tokens",
+        json={"name": "unifi-guest-portal-service"},
+    )
+    assert create_resp.status_code == 200
+    data = create_resp.json()
+    assert "token" in data
+    assert data["token"].startswith("spk_")
+    assert data["name"] == "unifi-guest-portal-service"
+    token_str = data["token"]
+    token_id = data["id"]
+
+    # 2. List tokens
+    list_resp = client.get("/api/admin/tokens")
+    assert list_resp.status_code == 200
+    tokens = list_resp.json()
+    assert len(tokens) == 1
+    assert tokens[0]["name"] == "unifi-guest-portal-service"
+    assert "token" not in tokens[0]  # Full token not exposed
+
+    # 3. Use generated token to authenticate to internal endpoint
+    auth_resp = client.post(
+        "/api/internal/guest-authorized",
+        headers={"X-Internal-Secret": token_str},
+        json={
+            "mac": "11:22:33:44:55:66",
+            "name": "Token Guest",
+            "reason": "Test",
+            "duration_minutes": 1440,
+            "approved_by": "admin",
+            "approved_at": 1000,
+            "expires_at": 2000,
+        },
+    )
+    assert auth_resp.status_code == 200
+    assert auth_resp.json()["status"] == "ok"
+
+    # 4. Revoke token
+    del_resp = client.delete(f"/api/admin/tokens/{token_id}")
+    assert del_resp.status_code == 200
+
+    # 5. Revoked token fails authentication
+    fail_resp = client.post(
+        "/api/internal/guest-authorized",
+        headers={"X-Internal-Secret": token_str},
+        json={
+            "mac": "11:22:33:44:55:66",
+            "name": "Token Guest",
+            "reason": "Test",
+            "duration_minutes": 1440,
+            "approved_by": "admin",
+            "approved_at": 1000,
+            "expires_at": 2000,
+        },
+    )
+    assert fail_resp.status_code == 401
+
+

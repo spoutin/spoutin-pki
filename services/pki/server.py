@@ -156,6 +156,10 @@ class GuestAuthorizedBody(BaseModel):
     expires_at: int
 
 
+class CreateApiTokenBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
 def resolve_internal_secret(ca_client=None) -> str:
     """Resolves the internal secret from OpenBao KV or environment fallback."""
     if ca_client and hasattr(ca_client, "get_internal_secret"):
@@ -1189,10 +1193,24 @@ def create_app(
         body: GuestAuthorizedBody,
         request: Request,
     ):
-        expected_secret = resolve_internal_secret(app.state.ca_client)
-        provided_secret = request.headers.get("X-Internal-Secret", "").strip()
+        # 1. Try Bearer or X-Internal-Secret token from request
+        auth_header = request.headers.get("Authorization", "").strip()
+        bearer_token = ""
+        if auth_header.startswith("Bearer "):
+            bearer_token = auth_header[7:].strip()
+        incoming_token = bearer_token or request.headers.get("X-Internal-Secret", "").strip()
 
-        if not expected_secret or provided_secret != expected_secret:
+        is_valid = False
+        # First check active DB-issued API tokens
+        if incoming_token and db.verify_and_touch_token(incoming_token):
+            is_valid = True
+        else:
+            # Fallback to OpenBao or static env secret
+            expected_secret = resolve_internal_secret(app.state.ca_client)
+            if expected_secret and incoming_token == expected_secret:
+                is_valid = True
+
+        if not is_valid:
             raise HTTPException(status_code=401, detail="Unauthorized internal request")
 
         session_id = db.record_guest_session(
@@ -1217,6 +1235,38 @@ def create_app(
             },
         )
         return {"status": "ok", "id": session_id}
+
+    # ================= ADMIN TOKEN ROUTES =================
+
+    @app.get("/api/admin/tokens")
+    def list_admin_tokens(admin: dict = Depends(require_admin)):
+        return db.list_api_tokens()
+
+    @app.post("/api/admin/tokens")
+    def create_admin_token(body: CreateApiTokenBody, admin: dict = Depends(require_admin)):
+        from services.pki.token_utils import generate_api_token
+
+        creator = admin.get("email") or admin.get("name", "admin")
+        raw_token, token_hash, token_prefix = generate_api_token()
+        token_id = db.create_api_token(
+            name=body.name.strip(),
+            token_hash=token_hash,
+            token_prefix=token_prefix,
+            created_by=creator,
+        )
+        return {
+            "id": token_id,
+            "name": body.name.strip(),
+            "token": raw_token,
+            "token_prefix": token_prefix,
+        }
+
+    @app.delete("/api/admin/tokens/{token_id}")
+    def revoke_admin_token(token_id: int, admin: dict = Depends(require_admin)):
+        success = db.revoke_api_token(token_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Token not found or already revoked")
+        return {"status": "revoked", "id": token_id}
 
     @app.get("/api/admin/guests")
     def list_admin_guests(admin: dict = Depends(require_admin)):
