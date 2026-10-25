@@ -165,6 +165,14 @@ def resolve_internal_secret(ca_client=None) -> str:
         )
         if val:
             return val
+        # Fallback to secondary key if primary key not found
+        fallback_key = "api_secret" if settings.OPENBAO_GUEST_SECRET_KEY != "api_secret" else "wifi_api_token"
+        val_fallback = ca_client.get_internal_secret(
+            path=settings.OPENBAO_GUEST_SECRET_PATH,
+            key=fallback_key,
+        )
+        if val_fallback:
+            return val_fallback
     return settings.INTERNAL_API_SECRET
 
 

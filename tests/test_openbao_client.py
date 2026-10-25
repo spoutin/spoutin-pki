@@ -235,13 +235,13 @@ def test_openbao_get_internal_secret():
         mock_resp.json.return_value = {
             "data": {
                 "data": {
-                    "api_secret": "my-secret-key-123"
+                    "wifi_api_token": "my-secret-key-123"
                 }
             }
         }
         mock_get.return_value = mock_resp
 
-        secret = client.get_internal_secret(path="secret/data/guest-portal", key="api_secret")
+        secret = client.get_internal_secret(path="secret/data/guest-portal", key="wifi_api_token")
         assert secret == "my-secret-key-123"
         mock_get.assert_called_once_with(
             "http://127.0.0.1:8200/v1/secret/data/guest-portal",

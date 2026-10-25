@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # Internal API Secret for Guest Portal
     INTERNAL_API_SECRET: str = ""
     OPENBAO_GUEST_SECRET_PATH: str = "secret/data/guest-portal"
-    OPENBAO_GUEST_SECRET_KEY: str = "api_secret"
+    OPENBAO_GUEST_SECRET_KEY: str = "wifi_api_token"
 
     # UniFi Controller Integration
     UNIFI_CONTROLLER_URL: str = ""
