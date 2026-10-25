@@ -934,6 +934,115 @@
     });
   }
 
+  // --- API Tokens Modal & Management ---
+  const btnOpenTokens = document.getElementById("btn-open-tokens");
+  const tokensModal = document.getElementById("tokens-modal");
+  const tokensCloseBtn = document.getElementById("tokens-close-btn");
+  const createTokenForm = document.getElementById("create-token-form");
+  const newTokenNameInput = document.getElementById("new-token-name");
+  const newTokenBox = document.getElementById("new-token-box");
+  const newTokenValueInput = document.getElementById("new-token-value");
+  const copyTokenBtn = document.getElementById("copy-token-btn");
+  const tokensTbody = document.getElementById("tokens-tbody");
+  const tokensEmpty = document.getElementById("tokens-empty");
+
+  async function refreshTokens() {
+    if (!tokensTbody) return;
+    try {
+      const resp = await adminFetch("/api/admin/tokens");
+      if (!resp.ok) return;
+      const tokens = await resp.json();
+      tokensTbody.innerHTML = "";
+      if (tokens.length === 0) {
+        if (tokensEmpty) tokensEmpty.classList.remove("hidden");
+        return;
+      }
+      if (tokensEmpty) tokensEmpty.classList.add("hidden");
+
+      tokens.forEach((t) => {
+        const tr = document.createElement("tr");
+        tr.style.borderBottom = "1px solid var(--border)";
+        const lastUsed = t.last_used_at ? formatTimeAgo(t.last_used_at) : "Never";
+        const isRevoked = Boolean(t.revoked_at);
+        const actionHtml = isRevoked
+          ? `<span style="color:var(--danger); font-size:0.75rem;">Revoked</span>`
+          : `<button class="btn-sm btn-reject" style="padding: 2px 6px; font-size: 0.75rem;" data-token-id="${t.id}">Revoke</button>`;
+
+        tr.innerHTML = `
+          <td style="padding: 0.5rem; font-weight: 600;">${escapeHtml(t.name)}</td>
+          <td style="padding: 0.5rem;"><code>${escapeHtml(t.token_prefix)}</code></td>
+          <td style="padding: 0.5rem; color: var(--text-muted);">${formatTimeAgo(t.created_at)}</td>
+          <td style="padding: 0.5rem; color: var(--text-muted);">${lastUsed}</td>
+          <td style="padding: 0.5rem; text-align: right;">${actionHtml}</td>
+        `;
+        tokensTbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.error("Failed to refresh tokens", e);
+    }
+  }
+
+  if (btnOpenTokens) {
+    btnOpenTokens.addEventListener("click", () => {
+      if (newTokenBox) newTokenBox.classList.add("hidden");
+      if (tokensModal) tokensModal.classList.remove("hidden");
+      refreshTokens();
+    });
+  }
+
+  if (tokensCloseBtn) {
+    tokensCloseBtn.addEventListener("click", () => {
+      if (tokensModal) tokensModal.classList.add("hidden");
+    });
+  }
+
+  if (createTokenForm) {
+    createTokenForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = newTokenNameInput.value.trim();
+      if (!name) return;
+      try {
+        const resp = await adminFetch("/api/admin/tokens", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (!resp.ok) throw new Error("Failed to create token");
+        const data = await resp.json();
+        newTokenNameInput.value = "";
+        if (newTokenValueInput) newTokenValueInput.value = data.token;
+        if (newTokenBox) newTokenBox.classList.remove("hidden");
+        refreshTokens();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
+  if (copyTokenBtn && newTokenValueInput) {
+    copyTokenBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(newTokenValueInput.value);
+      copyTokenBtn.textContent = "✅ Copied!";
+      setTimeout(() => { copyTokenBtn.textContent = "📋 Copy"; }, 2000);
+    });
+  }
+
+  if (tokensTbody) {
+    tokensTbody.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-token-id]");
+      if (!btn) return;
+      const tokenId = btn.dataset.tokenId;
+      if (!confirm("Are you sure you want to revoke this API token? Any service using it will immediately be rejected.")) return;
+      try {
+        const resp = await adminFetch(`/api/admin/tokens/${tokenId}`, { method: "DELETE" });
+        if (!resp.ok) throw new Error("Revocation failed");
+        refreshTokens();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
   if (modalGuestCancelBtn) {
     modalGuestCancelBtn.addEventListener("click", () => {
       if (revokeGuestModal) revokeGuestModal.classList.add("hidden");

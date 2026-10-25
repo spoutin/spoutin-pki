@@ -241,14 +241,19 @@
     <!-- TAB 4: Guest Wi-Fi -->
     <section id="tab-guests-view" class="hidden">
       <!-- Toolbar Filters -->
-      <div class="toolbar">
-        <input type="text" id="guests-search" class="search-input" placeholder="Search by name, reason, MAC, or IP...">
-        <select id="filter-guest-status" class="filter-select">
-          <option value="">All Statuses</option>
-          <option value="ACTIVE">Active Only</option>
-          <option value="EXPIRED">Expired Only</option>
-          <option value="REVOKED">Revoked Only</option>
-        </select>
+      <div class="toolbar" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+        <div style="display: flex; gap: 0.5rem; flex: 1;">
+          <input type="text" id="guests-search" class="search-input" placeholder="Search by name, reason, MAC, or IP...">
+          <select id="filter-guest-status" class="filter-select">
+            <option value="">All Statuses</option>
+            <option value="ACTIVE">Active Only</option>
+            <option value="EXPIRED">Expired Only</option>
+            <option value="REVOKED">Revoked Only</option>
+          </select>
+        </div>
+        <button id="btn-open-tokens" class="btn-sm btn-approve" style="white-space: nowrap;">
+          🔑 Manage API Tokens
+        </button>
       </div>
 
       <div class="table-card">
@@ -276,6 +281,57 @@
   </main>
 
   <!-- ================= MODALS ================= -->
+
+  <!-- API Tokens Management Modal -->
+  <div id="tokens-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 650px;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>API Integration Tokens</h2>
+        <button id="tokens-close-btn" style="background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Use these tokens to authenticate internal services (like <code>unifi-guest-portal</code>) via <code>X-Internal-Secret</code> header.
+        </p>
+
+        <!-- Create Token Form -->
+        <form id="create-token-form" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+          <input type="text" id="new-token-name" required placeholder="Token Name (e.g. unifi-guest-portal)" class="search-input" style="flex: 1;">
+          <button type="submit" class="btn-sm btn-approve" style="white-space: nowrap;">+ Create Token</button>
+        </form>
+
+        <!-- Newly Generated Token Display Box (Shown once) -->
+        <div id="new-token-box" class="hidden" style="margin-bottom: 1.25rem; padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 0.85rem; color: #10b981; margin-bottom: 0.35rem;">
+            ✅ Token Generated! Copy it now (it won't be shown again):
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" id="new-token-value" readonly style="flex: 1; font-family: monospace; font-size: 0.85rem; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text-main);">
+            <button type="button" id="copy-token-btn" class="btn-sm btn-approve">📋 Copy</button>
+          </div>
+        </div>
+
+        <!-- Tokens List Table -->
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+          <thead>
+            <tr style="text-align: left; border-bottom: 1px solid var(--border); color: var(--text-muted);">
+              <th style="padding: 0.5rem;">Name</th>
+              <th style="padding: 0.5rem;">Prefix</th>
+              <th style="padding: 0.5rem;">Created</th>
+              <th style="padding: 0.5rem;">Last Used</th>
+              <th style="padding: 0.5rem; text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="tokens-tbody">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+        <div id="tokens-empty" class="empty-state hidden" style="padding: 1.5rem 0;">
+          No API tokens created yet.
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Revoke Guest Modal -->
   <div id="revoke-guest-modal" class="modal-overlay hidden">
