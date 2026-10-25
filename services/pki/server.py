@@ -1273,6 +1273,16 @@ def create_app(
         sessions = db.list_guest_sessions(limit=200)
         unifi = get_unifi_client()
 
+        # If zero sessions recorded, perform automatic initial sync from UniFi
+        if len(sessions) == 0:
+            try:
+                raw_guests = unifi.get_all_guests()
+                if raw_guests:
+                    db.sync_unifi_guest_sessions(raw_guests)
+                    sessions = db.list_guest_sessions(limit=200)
+            except Exception as e:
+                logger.warning(f"Auto-sync from UniFi controller failed: {e}")
+
         active_clients = {}
         guest_auths = {}
         try:
@@ -1329,6 +1339,17 @@ def create_app(
             data={"mac": norm_mac, "revoked_by": admin_name},
         )
         return {"status": "revoked", "mac": norm_mac}
+
+    @app.post("/api/admin/guests/sync")
+    def sync_admin_guests(admin: dict = Depends(require_admin)):
+        unifi = get_unifi_client()
+        try:
+            raw_guests = unifi.get_all_guests()
+            count = db.sync_unifi_guest_sessions(raw_guests)
+            return {"status": "synced", "inserted": count}
+        except Exception as e:
+            logger.error(f"Manual UniFi guests sync failed: {e}", exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Failed to sync with UniFi: {e}")
 
     return app
 

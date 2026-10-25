@@ -276,3 +276,34 @@ def test_api_token_crud(db):
     assert db.verify_and_touch_token(raw_token) is False
     assert len(db.list_api_tokens(active_only=True)) == 0
 
+
+def test_sync_unifi_guest_sessions(db):
+    unifi_guests = [
+        {
+            "mac": "e6:c9:83:14:3b:07",
+            "hostname": "michael-s-s25",
+            "start": 1792789010,
+            "end": 1792961819,
+        },
+        {
+            "mac": "42:b1:cf:64:00:a0",
+            "hostname": "michael-s-tab-s9",
+            "start": 1792788950,
+            "end": 1792961750,
+        },
+    ]
+
+    count = db.sync_unifi_guest_sessions(unifi_guests)
+    assert count == 2
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 2
+    assert sessions[0]["mac"] in ["e6:c9:83:14:3b:07", "42:b1:cf:64:00:a0"]
+    assert sessions[0]["approved_by"] == "UniFi API"
+
+    # Re-running sync doesn't duplicate existing sessions
+    count2 = db.sync_unifi_guest_sessions(unifi_guests)
+    assert count2 == 0
+    assert len(db.list_guest_sessions()) == 2
+
+

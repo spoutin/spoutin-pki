@@ -595,6 +595,45 @@ class CertificateDatabase:
             self._conn.commit()
             return cur.rowcount > 0
 
+    def sync_unifi_guest_sessions(self, unifi_guests: list[dict[str, Any]]) -> int:
+        """
+        Syncs guest authorizations from UniFi Controller into guest_sessions.
+        Inserts new sessions or updates existing records without duplication.
+        Returns the count of newly inserted sessions.
+        """
+        inserted = 0
+        with self._lock:
+            cur = self._conn.cursor()
+            for g in unifi_guests:
+                mac = g.get("mac", "").lower().strip()
+                if not mac:
+                    continue
+
+                cur.execute("SELECT id FROM guest_sessions WHERE mac = ?", (mac,))
+                existing = cur.fetchone()
+                if existing:
+                    continue
+
+                name = g.get("hostname") or g.get("name") or f"Guest-{mac[-5:].replace(':', '')}"
+                reason = "UniFi Controller Guest"
+                start = int(g.get("start") or time.time())
+                end = int(g.get("end") or (start + 86400))
+                duration_mins = max(1, (end - start) // 60)
+
+                cur.execute(
+                    """
+                    INSERT INTO guest_sessions (
+                        mac, name, reason, duration_minutes, approved_by, status, approved_at, expires_at
+                    ) VALUES (?, ?, ?, ?, 'UniFi API', 'ACTIVE', ?, ?)
+                    """,
+                    (mac, name, reason, duration_mins, start, end),
+                )
+                inserted += 1
+
+            self._conn.commit()
+        return inserted
+
+
     def create_api_token(
         self,
         name: str,

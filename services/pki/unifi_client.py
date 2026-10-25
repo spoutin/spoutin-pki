@@ -120,6 +120,13 @@ class UnifiControllerClient:
                     guests[mac] = item
         return guests
 
+    def get_all_guests(self) -> list[dict[str, Any]]:
+        """Returns raw list of all guest objects from stat/guest."""
+        res = self._get_api("stat/guest")
+        if res and isinstance(res.get("data"), list):
+            return res["data"]
+        return []
+
     def revoke_guest(self, mac: str) -> bool:
         """De-authorizes guest and kicks station from AP."""
         norm_mac = mac.lower().strip()

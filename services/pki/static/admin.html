@@ -251,9 +251,14 @@
             <option value="REVOKED">Revoked Only</option>
           </select>
         </div>
-        <button id="btn-open-tokens" class="btn-sm btn-approve" style="white-space: nowrap;">
-          🔑 Manage API Tokens
-        </button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-sync-guests" class="btn-sm" style="background: var(--bg); border: 1px solid var(--border); color: var(--text-main); white-space: nowrap;">
+            🔄 Sync UniFi
+          </button>
+          <button id="btn-open-tokens" class="btn-sm btn-approve" style="white-space: nowrap;">
+            🔑 Manage API Tokens
+          </button>
+        </div>
       </div>
 
       <div class="table-card">

@@ -935,6 +935,7 @@
   }
 
   // --- API Tokens Modal & Management ---
+  const btnSyncGuests = document.getElementById("btn-sync-guests");
   const btnOpenTokens = document.getElementById("btn-open-tokens");
   const tokensModal = document.getElementById("tokens-modal");
   const tokensCloseBtn = document.getElementById("tokens-close-btn");
@@ -987,6 +988,22 @@
       if (newTokenBox) newTokenBox.classList.add("hidden");
       if (tokensModal) tokensModal.classList.remove("hidden");
       refreshTokens();
+    });
+  }
+
+  if (btnSyncGuests) {
+    btnSyncGuests.addEventListener("click", async () => {
+      setButtonLoading(btnSyncGuests, "Syncing...");
+      try {
+        const resp = await adminFetch("/api/admin/guests/sync", { method: "POST" });
+        if (!resp.ok) throw new Error("Sync failed");
+        const data = await resp.json();
+        await refreshGuests();
+      } catch (err) {
+        alert("Failed to sync UniFi guests: " + err.message);
+      } finally {
+        restoreButton(btnSyncGuests);
+      }
     });
   }
 

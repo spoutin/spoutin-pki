@@ -590,3 +590,29 @@ def test_admin_token_management_endpoints(admin_test_app):
     assert fail_resp.status_code == 401
 
 
+def test_admin_sync_unifi_guests_endpoint(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_all_guests.return_value = [
+        {
+            "mac": "aa:bb:cc:11:22:33",
+            "hostname": "michael-phone",
+            "start": 1000,
+            "end": 2000,
+        }
+    ]
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+        resp = client.post("/api/admin/guests/sync")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "synced"
+        assert resp.json()["inserted"] == 1
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["mac"] == "aa:bb:cc:11:22:33"
+    assert sessions[0]["name"] == "michael-phone"
+
+
+
