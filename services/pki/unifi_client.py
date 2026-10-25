@@ -127,6 +127,15 @@ class UnifiControllerClient:
             return res["data"]
         return []
 
+    def authorize_guest(self, mac: str, duration_minutes: int) -> bool:
+        """Authorizes guest station on the UniFi controller for given minutes."""
+        norm_mac = mac.lower().strip()
+        return self._post_api("cmd/stamgr", {
+            "cmd": "authorize-guest",
+            "mac": norm_mac,
+            "minutes": duration_minutes,
+        })
+
     def revoke_guest(self, mac: str) -> bool:
         """De-authorizes guest and kicks station from AP."""
         norm_mac = mac.lower().strip()

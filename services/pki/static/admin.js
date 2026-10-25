@@ -827,12 +827,63 @@
 
   function renderGuestsTable() {
     if (!guestsTbody) return;
+
+    // 1. Separate pending vs processed guests
+    const pendingGuests = cachedGuests.filter((g) => g.status === "PENDING");
+    const processedGuests = cachedGuests.filter((g) => g.status !== "PENDING");
+
+    // Render Pending Table
+    const pendingCard = document.getElementById("pending-guests-card");
+    const pendingTbody = document.getElementById("pending-guests-tbody");
+    const pendingCounter = document.getElementById("pending-guests-counter");
+
+    if (pendingCard && pendingTbody) {
+      if (pendingGuests.length > 0) {
+        pendingCard.classList.remove("hidden");
+        if (pendingCounter) pendingCounter.textContent = pendingGuests.length;
+        pendingTbody.innerHTML = "";
+
+        pendingGuests.forEach((p) => {
+          const ptr = document.createElement("tr");
+          ptr.innerHTML = `
+            <td>
+              <div style="font-weight:600; color:var(--text-main);">${escapeHtml(p.name)}</div>
+              <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(p.reason)}</div>
+            </td>
+            <td><code>${escapeHtml(p.mac)}</code></td>
+            <td>${formatTimeAgo(p.approved_at)}</td>
+            <td>
+              <select class="filter-select guest-duration-select" data-mac="${escapeHtml(p.mac)}" style="padding: 4px 8px; font-size: 0.8rem;">
+                <option value="1440" ${p.duration_minutes === 1440 ? "selected" : ""}>1 Day (24h)</option>
+                <option value="2880" ${p.duration_minutes === 2880 ? "selected" : ""}>2 Days</option>
+                <option value="4320" ${p.duration_minutes === 4320 ? "selected" : ""}>3 Days</option>
+                <option value="5760" ${p.duration_minutes === 5760 ? "selected" : ""}>4 Days</option>
+                <option value="7200" ${p.duration_minutes === 7200 ? "selected" : ""}>5 Days</option>
+                <option value="8640" ${p.duration_minutes === 8640 ? "selected" : ""}>6 Days</option>
+                <option value="10080" ${p.duration_minutes === 10080 ? "selected" : ""}>7 Days</option>
+              </select>
+            </td>
+            <td>
+              <div style="display:flex; gap:0.4rem;">
+                <button class="btn-sm btn-approve" data-action="approve-pending-guest" data-mac="${escapeHtml(p.mac)}">✅ Approve</button>
+                <button class="btn-sm btn-reject" data-action="deny-pending-guest" data-mac="${escapeHtml(p.mac)}">❌ Deny</button>
+              </div>
+            </td>
+          `;
+          pendingTbody.appendChild(ptr);
+        });
+      } else {
+        pendingCard.classList.add("hidden");
+      }
+    }
+
+    // 2. Render Processed Guests
     guestsTbody.innerHTML = "";
 
     const query = (guestsSearch ? guestsSearch.value.trim().toLowerCase() : "");
     const statusFilter = (filterGuestStatus ? filterGuestStatus.value : "");
 
-    const filtered = cachedGuests.filter((g) => {
+    const filtered = processedGuests.filter((g) => {
       if (statusFilter && g.status !== statusFilter) return false;
       if (query) {
         const text = `${g.name || ""} ${g.reason || ""} ${g.mac || ""} ${g.ip || ""} ${g.hostname || ""}`.toLowerCase();
@@ -917,6 +968,53 @@
   }
   if (filterGuestStatus) {
     filterGuestStatus.addEventListener("change", renderGuestsTable);
+  }
+
+  // Pending Guests Actions (Approve / Deny)
+  const pendingGuestsTbody = document.getElementById("pending-guests-tbody");
+  if (pendingGuestsTbody) {
+    pendingGuestsTbody.addEventListener("click", async (e) => {
+      const approveBtn = e.target.closest("button[data-action='approve-pending-guest']");
+      const denyBtn = e.target.closest("button[data-action='deny-pending-guest']");
+      if (!approveBtn && !denyBtn) return;
+
+      const btn = approveBtn || denyBtn;
+      const mac = btn.dataset.mac;
+      if (!mac) return;
+
+      if (approveBtn) {
+        const select = pendingGuestsTbody.querySelector(`.guest-duration-select[data-mac='${mac}']`);
+        const durationMins = select ? parseInt(select.value, 10) : 1440;
+        setButtonLoading(approveBtn, "Approving...");
+        try {
+          const resp = await adminFetch(`/api/admin/guests/${mac}/approve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ duration_minutes: durationMins }),
+          });
+          if (!resp.ok) throw new Error("Approval failed");
+          await refreshGuests();
+        } catch (err) {
+          alert("Failed to approve guest: " + err.message);
+        } finally {
+          restoreButton(approveBtn);
+        }
+      } else if (denyBtn) {
+        if (!confirm(`Deny access for ${mac}?`)) return;
+        setButtonLoading(denyBtn, "Denying...");
+        try {
+          const resp = await adminFetch(`/api/admin/guests/${mac}/deny`, {
+            method: "POST",
+          });
+          if (!resp.ok) throw new Error("Denial failed");
+          await refreshGuests();
+        } catch (err) {
+          alert("Failed to deny guest: " + err.message);
+        } finally {
+          restoreButton(denyBtn);
+        }
+      }
+    });
   }
 
   // Guests Actions (Revoke / Kick)

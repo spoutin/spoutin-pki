@@ -146,6 +146,14 @@ def calculate_ssh_fingerprint(public_key: str) -> str:
     return f"SHA256:{hashlib.sha256(public_key.strip().encode()).hexdigest()[:32]}"
 
 
+class GuestRequestedBody(BaseModel):
+    mac: str
+    name: str
+    reason: str
+    duration_minutes: int = 1440
+    requested_at: int
+
+
 class GuestAuthorizedBody(BaseModel):
     mac: str
     name: str
@@ -154,6 +162,10 @@ class GuestAuthorizedBody(BaseModel):
     approved_by: str = "admin"
     approved_at: int
     expires_at: int
+
+
+class ApproveGuestBody(BaseModel):
+    duration_minutes: Optional[int] = None
 
 
 class CreateApiTokenBody(BaseModel):
@@ -1188,6 +1200,47 @@ def create_app(
 
     # ================= GUEST WI-FI ROUTES =================
 
+    @app.post("/api/internal/guest-requested")
+    def internal_guest_requested(
+        body: GuestRequestedBody,
+        request: Request,
+    ):
+        auth_header = request.headers.get("Authorization", "").strip()
+        bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+        incoming_token = bearer_token or request.headers.get("X-Internal-Secret", "").strip()
+
+        is_valid = False
+        if incoming_token and db.verify_and_touch_token(incoming_token):
+            is_valid = True
+        else:
+            expected_secret = resolve_internal_secret(app.state.ca_client)
+            if expected_secret and incoming_token == expected_secret:
+                is_valid = True
+
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Unauthorized internal request")
+
+        session_id = db.record_pending_guest(
+            mac=body.mac,
+            name=body.name,
+            reason=body.reason,
+            duration_minutes=body.duration_minutes,
+            requested_at=body.requested_at,
+        )
+
+        bc.publish_admin(
+            event="guest_requested",
+            data={
+                "id": session_id,
+                "mac": body.mac,
+                "name": body.name,
+                "reason": body.reason,
+                "duration_minutes": body.duration_minutes,
+                "requested_at": body.requested_at,
+            },
+        )
+        return {"status": "ok", "id": session_id}
+
     @app.post("/api/internal/guest-authorized")
     def internal_guest_authorized(
         body: GuestAuthorizedBody,
@@ -1339,6 +1392,90 @@ def create_app(
             data={"mac": norm_mac, "revoked_by": admin_name},
         )
         return {"status": "revoked", "mac": norm_mac}
+
+    @app.post("/api/admin/guests/{mac}/approve")
+    def approve_admin_guest(mac: str, body: ApproveGuestBody = None, admin: dict = Depends(require_admin)):
+        norm_mac = mac.lower().strip()
+        admin_name = admin.get("email") or admin.get("name", "admin")
+
+        sessions = db.list_guest_sessions(limit=500)
+        guest_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "PENDING"), None)
+        if not guest_req:
+            raise HTTPException(status_code=404, detail="Pending guest request not found")
+
+        duration_mins = (body.duration_minutes if body and body.duration_minutes else None) or guest_req["duration_minutes"] or 1440
+        now = int(time.time())
+        expires_at = now + duration_mins * 60
+
+        # Authorize on UniFi Controller
+        unifi = get_unifi_client()
+        success = unifi.authorize_guest(norm_mac, duration_mins)
+        if not success:
+            raise HTTPException(status_code=502, detail="Failed to authorize guest on UniFi Controller")
+
+        db.approve_guest_session(
+            mac=norm_mac,
+            approved_by=admin_name,
+            duration_minutes=duration_mins,
+            approved_at=now,
+            expires_at=expires_at,
+        )
+
+        # Notify unifi-guest-portal to unlock guest's polling browser and update Slack
+        portal_url = "http://127.0.0.1:3000"
+        secret = resolve_internal_secret(app.state.ca_client)
+        headers = {"Content-Type": "application/json"}
+        if secret:
+            headers["X-Internal-Secret"] = secret
+        try:
+            requests.post(
+                f"{portal_url}/api/internal/guest/{norm_mac}/status",
+                json={"status": "approved", "processedBy": admin_name, "durationMinutes": duration_mins},
+                headers=headers,
+                timeout=4,
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify captive portal of remote approval: {e}")
+
+        bc.publish_admin(
+            event="guest_authorized",
+            data={
+                "mac": norm_mac,
+                "approved_by": admin_name,
+                "duration_minutes": duration_mins,
+                "expires_at": expires_at,
+            },
+        )
+        return {"status": "approved", "mac": norm_mac, "duration_minutes": duration_mins}
+
+    @app.post("/api/admin/guests/{mac}/deny")
+    def deny_admin_guest(mac: str, admin: dict = Depends(require_admin)):
+        norm_mac = mac.lower().strip()
+        admin_name = admin.get("email") or admin.get("name", "admin")
+
+        db.deny_guest_session(norm_mac, denied_by=admin_name)
+
+        # Notify unifi-guest-portal to inform polling browser and update Slack
+        portal_url = "http://127.0.0.1:3000"
+        secret = resolve_internal_secret(app.state.ca_client)
+        headers = {"Content-Type": "application/json"}
+        if secret:
+            headers["X-Internal-Secret"] = secret
+        try:
+            requests.post(
+                f"{portal_url}/api/internal/guest/{norm_mac}/status",
+                json={"status": "denied", "processedBy": admin_name},
+                headers=headers,
+                timeout=4,
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify captive portal of remote denial: {e}")
+
+        bc.publish_admin(
+            event="guest_denied",
+            data={"mac": norm_mac, "denied_by": admin_name},
+        )
+        return {"status": "denied", "mac": norm_mac}
 
     @app.post("/api/admin/guests/sync")
     def sync_admin_guests(admin: dict = Depends(require_admin)):

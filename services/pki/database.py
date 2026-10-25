@@ -542,6 +542,66 @@ class CertificateDatabase:
             self._conn.commit()
             return cur.rowcount > 0
 
+    def record_pending_guest(
+        self,
+        mac: str,
+        name: str,
+        reason: str,
+        duration_minutes: int,
+        requested_at: int,
+    ) -> int:
+        norm_mac = mac.lower().strip()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO guest_sessions (
+                    mac, name, reason, duration_minutes, approved_by, status, approved_at, expires_at
+                ) VALUES (?, ?, ?, ?, 'Pending', 'PENDING', ?, 0)
+                """,
+                (norm_mac, name, reason, duration_minutes, requested_at),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def approve_guest_session(
+        self,
+        mac: str,
+        approved_by: str,
+        duration_minutes: int,
+        approved_at: int,
+        expires_at: int,
+    ) -> bool:
+        norm_mac = mac.lower().strip()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE guest_sessions
+                SET status = 'ACTIVE', approved_by = ?, duration_minutes = ?, approved_at = ?, expires_at = ?
+                WHERE mac = ? AND status = 'PENDING'
+                """,
+                (approved_by, duration_minutes, approved_at, expires_at, norm_mac),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def deny_guest_session(self, mac: str, denied_by: str) -> bool:
+        norm_mac = mac.lower().strip()
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE guest_sessions
+                SET status = 'DENIED', revoked_at = ?, revoked_by = ?
+                WHERE mac = ? AND status = 'PENDING'
+                """,
+                (now, denied_by, norm_mac),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def record_guest_session(
         self,
         mac: str,

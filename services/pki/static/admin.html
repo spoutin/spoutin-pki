@@ -261,6 +261,28 @@
         </div>
       </div>
 
+      <!-- Pending Guests Section -->
+      <div id="pending-guests-card" class="table-card hidden" style="margin-bottom: 1.5rem; border: 1px solid rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.02);">
+        <div class="table-header" style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+          <h3 style="font-size: 0.95rem; margin: 0; color: #eab308; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⏳ Pending Access Requests</span>
+            <span id="pending-guests-counter" class="counter-badge" style="background: #eab308; color: black;">0</span>
+          </h3>
+        </div>
+        <table id="pending-guests-table">
+          <thead>
+            <tr>
+              <th>Guest / Reason</th>
+              <th>MAC Address</th>
+              <th>Requested</th>
+              <th>Duration</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pending-guests-tbody"></tbody>
+        </table>
+      </div>
+
       <div class="table-card">
         <table id="guests-table">
           <thead>
