@@ -502,6 +502,7 @@ def test_admin_list_and_revoke_guests(admin_test_app):
             "hostname": "Bob-Laptop",
             "ap_mac": "aa:bb:cc:dd:ee:ff",
             "is_guest": True,
+            "usergroup_id": "ug_vip",
         }
     }
     mock_unifi.get_guest_authorizations.return_value = {}
@@ -516,6 +517,7 @@ def test_admin_list_and_revoke_guests(admin_test_app):
         assert guests[0]["mac"] == "00:11:22:33:44:55"
         assert guests[0]["online"] is True
         assert guests[0]["ip"] == "10.0.1.50"
+        assert guests[0]["usergroup_id"] == "ug_vip"
 
         # 2. Revoke guest
         revoke_resp = client.post("/api/admin/guests/00:11:22:33:44:55/revoke")
@@ -613,6 +615,96 @@ def test_admin_sync_unifi_guests_endpoint(admin_test_app):
     assert len(sessions) == 1
     assert sessions[0]["mac"] == "aa:bb:cc:11:22:33"
     assert sessions[0]["name"] == "michael-phone"
+
+
+def test_admin_get_speed_profiles(admin_test_app):
+    client, _, _, _, _, _ = admin_test_app
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug1", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+        {"id": "ug2", "name": "50Mbps", "down_kbps": 50000, "up_kbps": 10000},
+    ]
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+        resp = client.get("/api/admin/guests/speed-profiles")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["id"] == "ug1"
+        assert data[1]["name"] == "50Mbps"
+        mock_unifi.get_user_groups.assert_called_once()
+
+
+def test_admin_set_guest_speed_profile(admin_test_app):
+    client, _, _, _, _, _ = admin_test_app
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug1", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+        {"id": "ug2", "name": "50Mbps", "down_kbps": 50000, "up_kbps": 10000},
+    ]
+    mock_unifi.set_client_user_group.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+        # 1. Invalid profile ID returns 400
+        bad_resp = client.post(
+            "/api/admin/guests/aa:bb:cc:dd:ee:ff/speed-profile",
+            json={"usergroup_id": "nonexistent_group"},
+        )
+        assert bad_resp.status_code == 400
+
+        # 2. Valid profile ID updates client
+        ok_resp = client.post(
+            "/api/admin/guests/aa:bb:cc:dd:ee:ff/speed-profile",
+            json={"usergroup_id": "ug2"},
+        )
+        assert ok_resp.status_code == 200
+        assert ok_resp.json() == {
+            "status": "updated",
+            "mac": "aa:bb:cc:dd:ee:ff",
+            "usergroup_id": "ug2",
+        }
+        mock_unifi.set_client_user_group.assert_called_once_with("aa:bb:cc:dd:ee:ff", "ug2")
+
+
+def test_admin_approve_guest_with_speed_profile(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Create a pending guest session
+    db.record_pending_guest(
+        mac="00:11:22:33:44:55",
+        name="Pending Guest",
+        reason="Testing",
+        duration_minutes=120,
+        requested_at=1000,
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug1", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+        {"id": "ug2", "name": "50Mbps", "down_kbps": 50000, "up_kbps": 10000},
+    ]
+    mock_unifi.authorize_guest.return_value = True
+    mock_unifi.set_client_user_group.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+        resp = client.post(
+            "/api/admin/guests/00:11:22:33:44:55/approve",
+            json={"duration_minutes": 240, "usergroup_id": "ug2"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "approved"
+
+        # Verify rate limits and set_client_user_group called
+        mock_unifi.authorize_guest.assert_called_once_with(
+            "00:11:22:33:44:55",
+            240,
+            up_kbps=10000,
+            down_kbps=50000,
+        )
+        mock_unifi.set_client_user_group.assert_called_once_with("00:11:22:33:44:55", "ug2")
+
 
 
 

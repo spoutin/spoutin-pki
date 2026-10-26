@@ -9,6 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
+import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
@@ -164,8 +165,13 @@ class GuestAuthorizedBody(BaseModel):
     expires_at: int
 
 
+class UpdateGuestProfileBody(BaseModel):
+    usergroup_id: str
+
+
 class ApproveGuestBody(BaseModel):
     duration_minutes: Optional[int] = None
+    usergroup_id: Optional[str] = None
 
 
 class CreateApiTokenBody(BaseModel):
@@ -1366,16 +1372,45 @@ def create_app(
             if status == "ACTIVE" and now >= expires_at:
                 status = "EXPIRED"
 
+            usergroup_id = sta.get("usergroup_id") or auth.get("usergroup_id") or s.get("usergroup_id", "")
+
             enriched.append({
                 **s,
                 "status": status,
                 "online": online,
                 "ip": ip,
                 "hostname": hostname,
+                "usergroup_id": usergroup_id,
                 "time_remaining_seconds": time_remaining,
             })
 
         return enriched
+
+    @app.get("/api/admin/guests/speed-profiles")
+    def get_guest_speed_profiles(admin: dict = Depends(require_admin)):
+        unifi = get_unifi_client()
+        return unifi.get_user_groups()
+
+    @app.post("/api/admin/guests/{mac}/speed-profile")
+    def update_guest_speed_profile(mac: str, body: UpdateGuestProfileBody, admin: dict = Depends(require_admin)):
+        norm_mac = mac.lower().strip()
+        admin_name = admin.get("email") or admin.get("name", "admin")
+
+        unifi = get_unifi_client()
+        groups = unifi.get_user_groups()
+        group_match = next((g for g in groups if g.get("id") == body.usergroup_id), None)
+        if not group_match:
+            raise HTTPException(status_code=400, detail="Invalid user group ID")
+
+        success = unifi.set_client_user_group(norm_mac, body.usergroup_id)
+        if not success:
+            raise HTTPException(status_code=502, detail="Failed to update client user group on UniFi Controller")
+
+        bc.publish_admin(
+            event="guest_profile_updated",
+            data={"mac": norm_mac, "usergroup_id": body.usergroup_id, "updated_by": admin_name},
+        )
+        return {"status": "updated", "mac": norm_mac, "usergroup_id": body.usergroup_id}
 
     @app.post("/api/admin/guests/{mac}/revoke")
     def revoke_admin_guest(mac: str, admin: dict = Depends(require_admin)):
@@ -1409,9 +1444,26 @@ def create_app(
 
         # Authorize on UniFi Controller
         unifi = get_unifi_client()
-        success = unifi.authorize_guest(norm_mac, duration_mins)
+
+        up_kbps = None
+        down_kbps = None
+        if body and body.usergroup_id:
+            groups = unifi.get_user_groups()
+            group_match = next((g for g in groups if g.get("id") == body.usergroup_id), None)
+            if group_match:
+                up_val = group_match.get("up_kbps")
+                down_val = group_match.get("down_kbps")
+                if up_val is not None and up_val > 0:
+                    up_kbps = up_val
+                if down_val is not None and down_val > 0:
+                    down_kbps = down_val
+
+        success = unifi.authorize_guest(norm_mac, duration_mins, up_kbps=up_kbps, down_kbps=down_kbps)
         if not success:
             raise HTTPException(status_code=502, detail="Failed to authorize guest on UniFi Controller")
+
+        if body and body.usergroup_id:
+            unifi.set_client_user_group(norm_mac, body.usergroup_id)
 
         db.approve_guest_session(
             mac=norm_mac,
