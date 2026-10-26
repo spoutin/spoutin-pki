@@ -32,6 +32,7 @@
   const modalGuestConfirmBtn = document.getElementById("modal-guest-confirm-btn");
   let activeRevokeGuestMac = null;
   let cachedGuests = [];
+  let cachedSpeedProfiles = [];
   let guestCountdownInterval = null;
 
   const adminQuickSignForm = document.getElementById("admin-quick-sign-form");
@@ -183,7 +184,7 @@
     } else if (tabName === "guests") {
       if (tabBtnGuests) tabBtnGuests.classList.add("active");
       if (tabGuestsView) tabGuestsView.classList.remove("hidden");
-      refreshGuests();
+      fetchSpeedProfiles().finally(() => refreshGuests());
     }
   }
 
@@ -216,6 +217,33 @@
     adminEventSource.addEventListener("vlan_synced", onServerUpdate);
     adminEventSource.addEventListener("guest_authorized", onServerUpdate);
     adminEventSource.addEventListener("guest_revoked", onServerUpdate);
+    adminEventSource.addEventListener("guest_profile_updated", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const mac = (data.mac || "").toLowerCase();
+        const usergroupId = data.usergroup_id;
+
+        const g = cachedGuests.find((x) => (x.mac || "").toLowerCase() === mac);
+        if (g) {
+          g.usergroup_id = usergroupId;
+        }
+
+        const selects = document.querySelectorAll(".guest-active-profile-select");
+        let found = false;
+        selects.forEach((sel) => {
+          if ((sel.dataset.mac || "").toLowerCase() === mac) {
+            sel.value = usergroupId;
+            sel.dataset.prevValue = usergroupId;
+            found = true;
+          }
+        });
+        if (!found) {
+          renderGuestsTable();
+        }
+      } catch (e) {
+        console.error("Error processing guest_profile_updated event", e);
+      }
+    });
 
     adminEventSource.onerror = () => {
       if (liveText) liveText.textContent = "Connecting...";
@@ -229,6 +257,7 @@
     updateSortHeaders();
     await fetchProfile();
     await loadAdminSshConfig();
+    fetchSpeedProfiles();
     const [, pendingList] = await Promise.all([
       refreshStats(),
       refreshRequests(),
@@ -252,13 +281,17 @@
 
   async function refreshAll(forceInventory = false) {
     try {
-      await Promise.all([
+      const promises = [
         refreshStats(),
         refreshRequests(),
-        (forceInventory || document.activeElement !== inventorySearch)
-          ? refreshInventory()
-          : Promise.resolve(),
-      ]);
+      ];
+      if (forceInventory || document.activeElement !== inventorySearch) {
+        promises.push(refreshInventory());
+      }
+      if (tabGuestsView && !tabGuestsView.classList.contains("hidden")) {
+        promises.push(refreshGuests());
+      }
+      await Promise.all(promises);
     } catch (e) {
       console.error("Auto-refresh cycle error", e);
     }
@@ -793,8 +826,53 @@
     });
   }
 
+  async function fetchSpeedProfiles() {
+    try {
+      const resp = await adminFetch("/api/admin/guests/speed-profiles");
+      if (!resp.ok) return [];
+      const profiles = await resp.json();
+      cachedSpeedProfiles = Array.isArray(profiles) ? profiles : [];
+      return cachedSpeedProfiles;
+    } catch (e) {
+      console.error("Speed profiles fetch failed", e);
+      return [];
+    }
+  }
+
+  function formatProfileRates(group) {
+    if (!group) return "";
+    const down = group.down_kbps;
+    const up = group.up_kbps;
+    const hasDown = down != null && down > 0;
+    const hasUp = up != null && up > 0;
+    if (!hasDown && !hasUp) {
+      return " (Unlimited)";
+    }
+    const fmt = (kbps) => {
+      if (!kbps || kbps <= 0) return "Unlimited";
+      const mbps = kbps / 1000;
+      return (Number.isInteger(mbps) ? mbps : mbps.toFixed(1)) + " Mbps";
+    };
+    return ` (${fmt(down)} / ${fmt(up)})`;
+  }
+
+  function getDefaultProfileId() {
+    if (!cachedSpeedProfiles || cachedSpeedProfiles.length === 0) return "";
+    const found = cachedSpeedProfiles.find((g) => {
+      const n = (g.name || "").toLowerCase();
+      return n === "default" || n === "guest";
+    }) || cachedSpeedProfiles.find((g) => {
+      const n = (g.name || "").toLowerCase();
+      return n.includes("default") || n.includes("guest");
+    }) || cachedSpeedProfiles[0];
+    return found ? found.id : "";
+  }
+
   async function refreshGuests() {
     try {
+      if (!cachedSpeedProfiles || cachedSpeedProfiles.length === 0) {
+        await fetchSpeedProfiles();
+      }
       const resp = await adminFetch("/api/admin/guests");
       if (!resp.ok) return [];
       const guests = await resp.json();
@@ -843,15 +921,27 @@
         if (pendingCounter) pendingCounter.textContent = pendingGuests.length;
         pendingTbody.innerHTML = "";
 
+        const defaultProfileId = getDefaultProfileId();
+
         pendingGuests.forEach((p) => {
           const ptr = document.createElement("tr");
+
+          const profileSelectHtml = cachedSpeedProfiles.length > 0
+            ? `<select class="filter-select guest-pending-profile-select" data-mac="${escapeHtml(p.mac)}" style="padding: 4px 8px; font-size: 0.8rem;">
+                ${cachedSpeedProfiles.map((grp) => {
+                  const isSel = (p.usergroup_id ? grp.id === p.usergroup_id : grp.id === defaultProfileId) ? "selected" : "";
+                  return `<option value="${escapeHtml(grp.id)}"${isSel ? " selected" : ""}>${escapeHtml(grp.name)}${formatProfileRates(grp)}</option>`;
+                }).join("")}
+              </select>`
+            : `<span style="color:var(--text-muted); font-size:0.8rem;">-</span>`;
+
           ptr.innerHTML = `
             <td>
               <div style="font-weight:600; color:var(--text-main);">${escapeHtml(p.name)}</div>
               <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(p.reason)}</div>
             </td>
             <td><code>${escapeHtml(p.mac)}</code></td>
-            <td>${formatTimeAgo(p.approved_at)}</td>
+            <td>${formatTimeAgo(p.requested_at || p.approved_at)}</td>
             <td>
               <select class="filter-select guest-duration-select" data-mac="${escapeHtml(p.mac)}" style="padding: 4px 8px; font-size: 0.8rem;">
                 <option value="1440" ${p.duration_minutes === 1440 ? "selected" : ""}>1 Day (24h)</option>
@@ -862,6 +952,9 @@
                 <option value="8640" ${p.duration_minutes === 8640 ? "selected" : ""}>6 Days</option>
                 <option value="10080" ${p.duration_minutes === 10080 ? "selected" : ""}>7 Days</option>
               </select>
+            </td>
+            <td>
+              ${profileSelectHtml}
             </td>
             <td>
               <div style="display:flex; gap:0.4rem;">
@@ -922,6 +1015,42 @@
       const ipInfo = g.ip ? `<code>${escapeHtml(g.ip)}</code>` : `<span style="color:var(--text-muted);">-</span>`;
       const hostInfo = g.hostname ? `<div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(g.hostname)}</div>` : "";
 
+      let speedProfileHtml = "";
+      if (g.status === "ACTIVE") {
+        if (cachedSpeedProfiles.length > 0) {
+          const defaultProfileId = getDefaultProfileId();
+          const currentGroupId = g.usergroup_id || defaultProfileId;
+          const known = cachedSpeedProfiles.some((grp) => grp.id === g.usergroup_id);
+          let extraOption = "";
+          if (g.usergroup_id && !known) {
+            extraOption = `<option value="${escapeHtml(g.usergroup_id)}" selected>${escapeHtml(g.usergroup_id)}</option>`;
+          }
+          const optionsHtml = extraOption + cachedSpeedProfiles.map((grp) => {
+            const isSelected = (!extraOption && grp.id === currentGroupId) ? "selected" : "";
+            return `<option value="${escapeHtml(grp.id)}"${isSelected ? " selected" : ""}>${escapeHtml(grp.name)}${formatProfileRates(grp)}</option>`;
+          }).join("");
+
+          speedProfileHtml = `
+            <div style="display:inline-flex; align-items:center; gap:6px;">
+              <select class="filter-select guest-active-profile-select" data-mac="${escapeHtml(g.mac)}" data-prev-value="${escapeHtml(currentGroupId)}" style="padding: 4px 8px; font-size: 0.8rem;">
+                ${optionsHtml}
+              </select>
+              <span class="profile-feedback" style="display:none; font-size:0.85rem; color:var(--success);" title="Saved">✓</span>
+            </div>
+          `;
+        } else {
+          speedProfileHtml = `<span style="color:var(--text-muted); font-size:0.8rem;">-</span>`;
+        }
+      } else {
+        // EXPIRED or REVOKED
+        let profileName = "-";
+        if (g.usergroup_id) {
+          const matched = cachedSpeedProfiles.find((grp) => grp.id === g.usergroup_id);
+          profileName = matched ? matched.name : g.usergroup_id;
+        }
+        speedProfileHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(profileName)}</span>`;
+      }
+
       const countdownHtml = (g.status === "REVOKED")
         ? `<span style="color:var(--text-muted);">Revoked</span>`
         : `<span class="guest-countdown" data-expires="${g.expires_at}">${formatCountdown(g.time_remaining_seconds)}</span>`;
@@ -938,6 +1067,7 @@
         <td><code>${escapeHtml(g.mac)}</code></td>
         <td>${ipInfo}${hostInfo}</td>
         <td>${statusBadge}</td>
+        <td>${speedProfileHtml}</td>
         <td>
           <div style="font-size:0.85rem;">@${escapeHtml(g.approved_by || "admin")}</div>
           <div style="font-size:0.75rem; color:var(--text-muted);">${formatDateTime(g.approved_at)}</div>
@@ -984,13 +1114,19 @@
 
       if (approveBtn) {
         const select = pendingGuestsTbody.querySelector(`.guest-duration-select[data-mac='${mac}']`);
+        const profSelect = pendingGuestsTbody.querySelector(`.guest-pending-profile-select[data-mac='${mac}']`);
         const durationMins = select ? parseInt(select.value, 10) : 1440;
+        const usergroupId = profSelect ? profSelect.value : undefined;
+
         setButtonLoading(approveBtn, "Approving...");
         try {
           const resp = await adminFetch(`/api/admin/guests/${mac}/approve`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ duration_minutes: durationMins }),
+            body: JSON.stringify({
+              duration_minutes: durationMins,
+              usergroup_id: usergroupId || undefined,
+            }),
           });
           if (!resp.ok) throw new Error("Approval failed");
           await refreshGuests();
@@ -1017,8 +1153,50 @@
     });
   }
 
-  // Guests Actions (Revoke / Kick)
+  // Guests Actions (Revoke / Kick / Speed Profile Change)
   if (guestsTbody) {
+    guestsTbody.addEventListener("change", async (e) => {
+      const select = e.target.closest(".guest-active-profile-select");
+      if (!select) return;
+
+      const mac = select.dataset.mac;
+      const newGroupId = select.value;
+      const prevGroupId = select.dataset.prevValue || "";
+
+      select.disabled = true;
+
+      try {
+        const resp = await adminFetch(`/api/admin/guests/${mac}/speed-profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usergroup_id: newGroupId }),
+        });
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Update failed");
+        }
+        select.dataset.prevValue = newGroupId;
+        const g = cachedGuests.find((x) => (x.mac || "").toLowerCase() === (mac || "").toLowerCase());
+        if (g) {
+          g.usergroup_id = newGroupId;
+        }
+
+        const container = select.parentElement;
+        const feedback = container ? container.querySelector(".profile-feedback") : null;
+        if (feedback) {
+          feedback.style.display = "inline";
+          setTimeout(() => {
+            feedback.style.display = "none";
+          }, 2000);
+        }
+      } catch (err) {
+        alert("Failed to update speed profile: " + err.message);
+        select.value = prevGroupId;
+      } finally {
+        select.disabled = false;
+      }
+    });
+
     guestsTbody.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-action='kick-guest']");
       if (!btn) return;
@@ -1096,6 +1274,7 @@
         const resp = await adminFetch("/api/admin/guests/sync", { method: "POST" });
         if (!resp.ok) throw new Error("Sync failed");
         const data = await resp.json();
+        await fetchSpeedProfiles();
         await refreshGuests();
       } catch (err) {
         alert("Failed to sync UniFi guests: " + err.message);
