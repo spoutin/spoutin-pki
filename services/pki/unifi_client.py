@@ -98,6 +98,28 @@ class UnifiControllerClient:
                 logger.warning(f"UniFi POST {url} failed: {e}")
         return False
 
+    def _put_api(self, subpath: str, data: dict[str, Any]) -> bool:
+        if not self.url:
+            return False
+        self._login_if_needed()
+
+        endpoints = [
+            f"{self.url}/proxy/network/api/s/{self.site}/{subpath.lstrip('/')}",
+            f"{self.url}/api/s/{self.site}/{subpath.lstrip('/')}",
+        ]
+
+        for url in endpoints:
+            try:
+                resp = self.session.put(url, json=data, timeout=10)
+                if resp.status_code == 404 and url == endpoints[0]:
+                    continue
+                resp.raise_for_status()
+                res_data = resp.json()
+                return res_data.get("meta", {}).get("rc") == "ok"
+            except Exception as e:
+                logger.warning(f"UniFi PUT {url} failed: {e}")
+        return False
+
     def get_active_clients(self) -> dict[str, dict[str, Any]]:
         """Returns map of MAC -> active client dictionary from stat/sta."""
         res = self._get_api("stat/sta")
@@ -127,14 +149,77 @@ class UnifiControllerClient:
             return res["data"]
         return []
 
-    def authorize_guest(self, mac: str, duration_minutes: int) -> bool:
-        """Authorizes guest station on the UniFi controller for given minutes."""
+    def get_user_groups(self) -> list[dict[str, Any]]:
+        """Fetch list of user groups / bandwidth profiles configured on the controller."""
+        res = self._get_api("rest/usergroup")
+        groups = []
+        if res and isinstance(res.get("data"), list):
+            for item in res["data"]:
+                groups.append({
+                    "id": item.get("_id"),
+                    "name": item.get("name"),
+                    "down_kbps": item.get("qos_rate_max_down", -1),
+                    "up_kbps": item.get("qos_rate_max_up", -1),
+                })
+        return groups
+
+    def get_client(self, mac: str) -> Optional[dict[str, Any]]:
+        """Look up client device / user record by MAC address."""
         norm_mac = mac.lower().strip()
-        return self._post_api("cmd/stamgr", {
+        # Try stat/user/{mac} first
+        res = self._get_api(f"stat/user/{norm_mac}")
+        if res and isinstance(res.get("data"), list) and res["data"]:
+            return res["data"][0]
+
+        # Fallback to stat/sta to check active stations
+        active_clients = self.get_active_clients()
+        if norm_mac in active_clients:
+            return active_clients[norm_mac]
+
+        # Fallback to querying rest/user
+        res_users = self._get_api("rest/user")
+        if res_users and isinstance(res_users.get("data"), list):
+            for item in res_users["data"]:
+                if item.get("mac", "").lower().strip() == norm_mac:
+                    return item
+
+        return None
+
+    def set_client_user_group(self, mac: str, usergroup_id: str) -> bool:
+        """Assign a user group / speed profile to a client by MAC address."""
+        norm_mac = mac.lower().strip()
+        client = self.get_client(norm_mac)
+
+        if client and client.get("_id"):
+            user_id = client["_id"]
+            # Try PUT rest/user/{user_id}
+            if self._put_api(f"rest/user/{user_id}", {"usergroup_id": usergroup_id}):
+                return True
+            # Fallback to upd/user/{user_id}
+            return self._post_api(f"upd/user/{user_id}", {"usergroup_id": usergroup_id})
+
+        # User doesn't exist in rest/user yet, create or set via rest/user
+        return self._post_api("rest/user", {"mac": norm_mac, "usergroup_id": usergroup_id})
+
+    def authorize_guest(
+        self,
+        mac: str,
+        duration_minutes: int,
+        up_kbps: Optional[int] = None,
+        down_kbps: Optional[int] = None,
+    ) -> bool:
+        """Authorizes guest station on the UniFi controller for given minutes with optional rate limits."""
+        norm_mac = mac.lower().strip()
+        payload: dict[str, Any] = {
             "cmd": "authorize-guest",
             "mac": norm_mac,
             "minutes": duration_minutes,
-        })
+        }
+        if up_kbps is not None and up_kbps > 0:
+            payload["up"] = up_kbps
+        if down_kbps is not None and down_kbps > 0:
+            payload["down"] = down_kbps
+        return self._post_api("cmd/stamgr", payload)
 
     def revoke_guest(self, mac: str) -> bool:
         """De-authorizes guest and kicks station from AP."""
