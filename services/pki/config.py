@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     INTERNAL_API_SECRET: str = ""
     OPENBAO_GUEST_SECRET_PATH: str = "secret/data/guest-portal"
     OPENBAO_GUEST_SECRET_KEY: str = "wifi_api_token"
+    GUEST_PORTAL_INTERNAL_URL: str = "https://captive-portal.int.spoutin.org"
 
     # UniFi Controller Integration
     UNIFI_CONTROLLER_URL: str = ""

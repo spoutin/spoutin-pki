@@ -1519,20 +1519,24 @@ def create_app(
         )
 
         # Notify unifi-guest-portal to unlock guest's polling browser and update Slack
-        portal_url = "http://127.0.0.1:3000"
+        portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
         secret = resolve_internal_secret(app.state.ca_client)
         headers = {"Content-Type": "application/json"}
         if secret:
             headers["X-Internal-Secret"] = secret
+            headers["Authorization"] = f"Bearer {secret}"
+        status = "approval"
         try:
             requests.post(
                 f"{portal_url}/api/internal/guest/{norm_mac}/status",
                 json={"status": "approved", "processedBy": admin_name, "durationMinutes": duration_mins},
                 headers=headers,
                 timeout=4,
+                verify=False,
             )
+            logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
         except Exception as e:
-            logger.warning(f"Could not notify captive portal of remote approval: {e}")
+            logger.warning(f"Could not notify captive portal of remote {status}: {e}")
 
         bc.publish_admin(
             event="guest_authorized",
@@ -1557,20 +1561,24 @@ def create_app(
         db.deny_guest_session(norm_mac, denied_by=admin_name)
 
         # Notify unifi-guest-portal to inform polling browser and update Slack
-        portal_url = "http://127.0.0.1:3000"
+        portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
         secret = resolve_internal_secret(app.state.ca_client)
         headers = {"Content-Type": "application/json"}
         if secret:
             headers["X-Internal-Secret"] = secret
+            headers["Authorization"] = f"Bearer {secret}"
+        status = "denial"
         try:
             requests.post(
                 f"{portal_url}/api/internal/guest/{norm_mac}/status",
                 json={"status": "denied", "processedBy": admin_name},
                 headers=headers,
                 timeout=4,
+                verify=False,
             )
+            logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
         except Exception as e:
-            logger.warning(f"Could not notify captive portal of remote denial: {e}")
+            logger.warning(f"Could not notify captive portal of remote {status}: {e}")
 
         bc.publish_admin(
             event="guest_denied",

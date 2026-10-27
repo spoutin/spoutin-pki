@@ -3,6 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from services.pki.auth import create_session_token
+from services.pki.config import settings
 from services.pki.database import CertificateDatabase
 from services.pki.models import DevicePlatform, VlanOption
 from services.pki.server import create_app
@@ -757,7 +758,9 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
     mock_unifi.authorize_guest.return_value = True
     mock_unifi.set_client_user_group.return_value = True
 
-    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch("services.pki.server.requests.post") as mock_post, \
+         patch("services.pki.server.resolve_internal_secret", return_value="portal-secret-abc"):
         resp = client.post(
             "/api/admin/guests/00:11:22:33:44:55/approve",
             json={"duration_minutes": 240, "usergroup_id": "ug2"},
@@ -773,6 +776,106 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
             down_kbps=50000,
         )
         mock_unifi.set_client_user_group.assert_called_once_with("00:11:22:33:44:55", "ug2")
+
+        # Verify captive portal webhook notification uses settings.GUEST_PORTAL_INTERNAL_URL
+        expected_portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
+        mock_post.assert_called_once_with(
+            f"{expected_portal_url}/api/internal/guest/00:11:22:33:44:55/status",
+            json={"status": "approved", "processedBy": "admin@spoutin.org", "durationMinutes": 240},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Secret": "portal-secret-abc",
+                "Authorization": "Bearer portal-secret-abc",
+            },
+            timeout=4,
+            verify=False,
+        )
+
+
+def test_admin_deny_guest(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Create a pending guest session
+    db.record_pending_guest(
+        mac="00:11:22:33:44:55",
+        name="Pending Guest",
+        reason="Testing Denial",
+        duration_minutes=60,
+        requested_at=1000,
+    )
+
+    with patch("services.pki.server.requests.post") as mock_post, \
+         patch("services.pki.server.resolve_internal_secret", return_value="portal-secret-xyz"):
+        resp = client.post("/api/admin/guests/00:11:22:33:44:55/deny")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "denied", "mac": "00:11:22:33:44:55"}
+
+        # Verify captive portal webhook notification uses settings.GUEST_PORTAL_INTERNAL_URL
+        expected_portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
+        mock_post.assert_called_once_with(
+            f"{expected_portal_url}/api/internal/guest/00:11:22:33:44:55/status",
+            json={"status": "denied", "processedBy": "admin@spoutin.org"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Secret": "portal-secret-xyz",
+                "Authorization": "Bearer portal-secret-xyz",
+            },
+            timeout=4,
+            verify=False,
+        )
+
+    sessions = db.list_guest_sessions()
+    session = next(s for s in sessions if s["mac"] == "00:11:22:33:44:55")
+    assert session["status"] == "DENIED"
+    assert session["revoked_by"] == "admin@spoutin.org"
+
+
+def test_admin_guest_portal_custom_url(admin_test_app, monkeypatch):
+    client, _, db, _, _, _ = admin_test_app
+    monkeypatch.setattr(settings, "GUEST_PORTAL_INTERNAL_URL", "https://custom-portal.test:8443/")
+
+    db.record_pending_guest(
+        mac="aa:bb:cc:11:22:33",
+        name="Custom URL Guest",
+        reason="Testing",
+        duration_minutes=60,
+        requested_at=1000,
+    )
+
+    with patch("services.pki.server.requests.post") as mock_post, \
+         patch("services.pki.server.resolve_internal_secret", return_value="custom-secret"):
+        resp = client.post("/api/admin/guests/aa:bb:cc:11:22:33/deny")
+        assert resp.status_code == 200
+        mock_post.assert_called_once_with(
+            "https://custom-portal.test:8443/api/internal/guest/aa:bb:cc:11:22:33/status",
+            json={"status": "denied", "processedBy": "admin@spoutin.org"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Secret": "custom-secret",
+                "Authorization": "Bearer custom-secret",
+            },
+            timeout=4,
+            verify=False,
+        )
+
+
+def test_admin_guest_portal_notification_failure_logging(admin_test_app, caplog):
+    client, _, db, _, _, _ = admin_test_app
+    db.record_pending_guest(
+        mac="11:22:33:44:55:66",
+        name="Fail Guest",
+        reason="Testing",
+        duration_minutes=60,
+        requested_at=1000,
+    )
+
+    with patch("services.pki.server.requests.post", side_effect=Exception("Connection refused")):
+        with caplog.at_level("WARNING"):
+            resp = client.post("/api/admin/guests/11:22:33:44:55:66/deny")
+            assert resp.status_code == 200
+            assert "Could not notify captive portal of remote denial: Connection refused" in caplog.text
+
+
 
 
 
