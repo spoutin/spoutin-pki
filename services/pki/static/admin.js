@@ -267,6 +267,7 @@
           if (data.name) existing.name = data.name;
           if (data.reason) existing.reason = data.reason;
           if (data.id) existing.id = data.id;
+          if (data.usergroup_id) existing.usergroup_id = data.usergroup_id;
           existing.time_remaining_seconds = Math.max(0, expiresAt - now);
         } else {
           cachedGuests.unshift({
@@ -283,7 +284,7 @@
             online: false,
             ip: "",
             hostname: "",
-            usergroup_id: "",
+            usergroup_id: data.usergroup_id || "",
           });
         }
         renderGuestsTable();
@@ -1164,10 +1165,10 @@
         if (cachedSpeedProfiles.length > 0) {
           const defaultProfileId = getDefaultProfileId();
           const currentGroupId = g.usergroup_id || defaultProfileId;
-          const known = cachedSpeedProfiles.some((grp) => grp.id === g.usergroup_id);
+          const known = cachedSpeedProfiles.some((grp) => grp.id === currentGroupId);
           let extraOption = "";
-          if (g.usergroup_id && !known) {
-            extraOption = `<option value="${escapeHtml(g.usergroup_id)}" selected>${escapeHtml(g.usergroup_id)}</option>`;
+          if (currentGroupId && !known) {
+            extraOption = `<option value="${escapeHtml(currentGroupId)}" selected>${escapeHtml(currentGroupId)}</option>`;
           }
           const optionsHtml = extraOption + cachedSpeedProfiles.map((grp) => {
             const isSelected = (!extraOption && grp.id === currentGroupId) ? "selected" : "";

@@ -1395,10 +1395,19 @@ def create_app(
         except Exception as e:
             logger.warning(f"Could not reach UniFi controller for live stats: {e}")
 
+        ug_map = {}
+        try:
+            res_ug = unifi.get_client_usergroups_map()
+            if isinstance(res_ug, dict):
+                ug_map = res_ug
+        except Exception as e:
+            logger.warning(f"Could not reach UniFi controller for client usergroups: {e}")
+
         now = int(time.time())
         enriched = []
         for s in sessions:
-            mac = s["mac"].lower()
+            norm_mac = s["mac"].lower().strip()
+            mac = norm_mac
             sta = active_clients.get(mac, {})
             auth = guest_auths.get(mac, {})
 
@@ -1417,7 +1426,7 @@ def create_app(
             if status == "ACTIVE" and now >= expires_at:
                 status = "EXPIRED"
 
-            usergroup_id = sta.get("usergroup_id") or auth.get("usergroup_id") or s.get("usergroup_id", "")
+            s["usergroup_id"] = ug_map.get(norm_mac)
 
             enriched.append({
                 **s,
@@ -1425,7 +1434,7 @@ def create_app(
                 "online": online,
                 "ip": ip,
                 "hostname": hostname,
-                "usergroup_id": usergroup_id,
+                "usergroup_id": s["usergroup_id"],
                 "time_remaining_seconds": time_remaining,
             })
 
@@ -1549,6 +1558,7 @@ def create_app(
                 "duration_minutes": duration_mins,
                 "approved_at": now,
                 "expires_at": expires_at,
+                "usergroup_id": body.usergroup_id if body else None,
             },
         )
         return {"status": "approved", "mac": norm_mac, "duration_minutes": duration_mins}

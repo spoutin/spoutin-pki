@@ -576,6 +576,7 @@ def test_admin_list_and_revoke_guests(admin_test_app):
         }
     }
     mock_unifi.get_guest_authorizations.return_value = {}
+    mock_unifi.get_client_usergroups_map.return_value = {"00:11:22:33:44:55": "ug_vip"}
     mock_unifi.revoke_guest.return_value = True
 
     with patch("services.pki.server.get_unifi_client", return_value=mock_unifi):
@@ -760,7 +761,8 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
 
     with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
          patch("services.pki.server.requests.post") as mock_post, \
-         patch("services.pki.server.resolve_internal_secret", return_value="portal-secret-abc"):
+         patch("services.pki.server.resolve_internal_secret", return_value="portal-secret-abc"), \
+         patch.object(client.app.state.broadcaster, "publish_admin", wraps=client.app.state.broadcaster.publish_admin) as mock_pub:
         resp = client.post(
             "/api/admin/guests/00:11:22:33:44:55/approve",
             json={"duration_minutes": 240, "usergroup_id": "ug2"},
@@ -776,6 +778,13 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
             down_kbps=50000,
         )
         mock_unifi.set_client_user_group.assert_called_once_with("00:11:22:33:44:55", "ug2")
+
+        # Verify publish_admin included usergroup_id
+        mock_pub.assert_called_once()
+        _, pub_kwargs = mock_pub.call_args
+        assert pub_kwargs["event"] == "guest_authorized"
+        assert pub_kwargs["data"]["usergroup_id"] == "ug2"
+        assert pub_kwargs["data"]["mac"] == "00:11:22:33:44:55"
 
         # Verify captive portal webhook notification uses settings.GUEST_PORTAL_INTERNAL_URL
         expected_portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")

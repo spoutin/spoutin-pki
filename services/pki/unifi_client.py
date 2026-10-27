@@ -163,6 +163,29 @@ class UnifiControllerClient:
                 })
         return groups
 
+    def get_client_usergroups_map(self) -> dict[str, str]:
+        """Fetch map of client MAC -> usergroup_id from rest/user and stat/sta."""
+        result: dict[str, str] = {}
+        res_users = self._get_api("rest/user")
+        if res_users and isinstance(res_users.get("data"), list):
+            for item in res_users["data"]:
+                if isinstance(item, dict):
+                    mac = item.get("mac", "").lower().strip()
+                    ug_id = item.get("usergroup_id")
+                    if mac and ug_id:
+                        result[mac] = str(ug_id)
+
+        res_sta = self._get_api("stat/sta")
+        if res_sta and isinstance(res_sta.get("data"), list):
+            for item in res_sta["data"]:
+                if isinstance(item, dict):
+                    mac = item.get("mac", "").lower().strip()
+                    ug_id = item.get("usergroup_id")
+                    if mac and ug_id:
+                        result[mac] = str(ug_id)
+
+        return result
+
     def get_client(self, mac: str) -> Optional[dict[str, Any]]:
         """Look up client device / user record by MAC address."""
         norm_mac = mac.lower().strip()

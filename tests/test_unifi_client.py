@@ -291,3 +291,60 @@ def test_unifi_client_authorize_guest():
                 "minutes": 60,
             },
         )
+
+
+def test_unifi_client_get_client_usergroups_map():
+    client = UnifiControllerClient(
+        url="https://10.0.0.1",
+        api_key="my-key",
+        site="default",
+    )
+
+    with patch.object(client, "_get_api") as mock_get:
+        # Mock rest/user response and stat/sta response
+        def get_side_effect(subpath):
+            if subpath == "rest/user":
+                return {
+                    "meta": {"rc": "ok"},
+                    "data": [
+                        {"mac": "AA:BB:CC:DD:EE:01", "usergroup_id": "ug_1"},
+                        {"mac": "AA:BB:CC:DD:EE:02", "usergroup_id": "ug_old"},
+                        {"mac": "AA:BB:CC:DD:EE:03"},  # No usergroup_id
+                        {"usergroup_id": "ug_4"},  # No mac
+                    ],
+                }
+            elif subpath == "stat/sta":
+                return {
+                    "meta": {"rc": "ok"},
+                    "data": [
+                        # Overrides ug_old for 02
+                        {"mac": "aa:bb:cc:dd:ee:02", "usergroup_id": "ug_new"},
+                        # Active client not in rest/user
+                        {"mac": "AA:BB:CC:DD:EE:04 ", "usergroup_id": "ug_active"},
+                        # Active client with no usergroup_id
+                        {"mac": "AA:BB:CC:DD:EE:05"},
+                    ],
+                }
+            return None
+
+        mock_get.side_effect = get_side_effect
+
+        ug_map = client.get_client_usergroups_map()
+        assert ug_map == {
+            "aa:bb:cc:dd:ee:01": "ug_1",
+            "aa:bb:cc:dd:ee:02": "ug_new",
+            "aa:bb:cc:dd:ee:04": "ug_active",
+        }
+
+
+def test_unifi_client_get_client_usergroups_map_empty():
+    client = UnifiControllerClient(
+        url="https://10.0.0.1",
+        api_key="my-key",
+        site="default",
+    )
+
+    with patch.object(client, "_get_api", return_value=None):
+        ug_map = client.get_client_usergroups_map()
+        assert ug_map == {}
+
