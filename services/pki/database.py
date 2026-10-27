@@ -616,6 +616,25 @@ class CertificateDatabase:
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
+                "SELECT id FROM guest_sessions WHERE mac = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
+                (norm_mac,),
+            )
+            pending_row = cur.fetchone()
+            if pending_row:
+                session_id = pending_row[0]
+                cur.execute(
+                    """
+                    UPDATE guest_sessions
+                    SET name = ?, reason = ?, duration_minutes = ?, approved_by = ?,
+                        status = 'ACTIVE', approved_at = ?, expires_at = ?
+                    WHERE id = ?
+                    """,
+                    (name, reason, duration_minutes, approved_by, approved_at, expires_at, session_id),
+                )
+                self._conn.commit()
+                return session_id
+
+            cur.execute(
                 """
                 INSERT INTO guest_sessions (
                     mac, name, reason, duration_minutes, approved_by, status, approved_at, expires_at

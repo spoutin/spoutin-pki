@@ -215,15 +215,125 @@
     adminEventSource.addEventListener("cert_revoked", onServerUpdate);
     adminEventSource.addEventListener("cert_vlan_updated", onServerUpdate);
     adminEventSource.addEventListener("vlan_synced", onServerUpdate);
-    adminEventSource.addEventListener("guest_authorized", onServerUpdate);
-    adminEventSource.addEventListener("guest_revoked", onServerUpdate);
+
+    // Guest Wi-Fi SSE Handlers
+    adminEventSource.addEventListener("guest_requested", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const normMac = (data.mac || "").toLowerCase().trim();
+        const existingIdx = cachedGuests.findIndex((g) => (g.mac || "").toLowerCase().trim() === normMac);
+        const item = {
+          id: data.id,
+          mac: data.mac,
+          name: data.name || "",
+          reason: data.reason || "",
+          duration_minutes: data.duration_minutes || 1440,
+          requested_at: data.requested_at || Math.floor(Date.now() / 1000),
+          status: "PENDING",
+          online: false,
+          ip: "",
+          hostname: "",
+          usergroup_id: "",
+          ...data,
+        };
+        item.status = "PENDING";
+        if (existingIdx >= 0) {
+          cachedGuests[existingIdx] = { ...cachedGuests[existingIdx], ...item };
+        } else {
+          cachedGuests.unshift(item);
+        }
+        renderGuestsTable();
+        updateGuestBadge();
+      } catch (e) {
+        console.error("Error processing guest_requested event", e);
+      }
+    });
+
+    adminEventSource.addEventListener("guest_authorized", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const normMac = (data.mac || "").toLowerCase().trim();
+        const existing = cachedGuests.find((g) => (g.mac || "").toLowerCase().trim() === normMac);
+        const now = Math.floor(Date.now() / 1000);
+        const durationMins = data.duration_minutes || (existing ? existing.duration_minutes : 1440) || 1440;
+        const expiresAt = data.expires_at || (now + durationMins * 60);
+
+        if (existing) {
+          existing.status = "ACTIVE";
+          existing.approved_by = data.approved_by || existing.approved_by || "admin";
+          existing.expires_at = expiresAt;
+          existing.duration_minutes = durationMins;
+          existing.approved_at = data.approved_at || existing.approved_at || now;
+          if (data.name) existing.name = data.name;
+          if (data.reason) existing.reason = data.reason;
+          if (data.id) existing.id = data.id;
+          existing.time_remaining_seconds = Math.max(0, expiresAt - now);
+        } else {
+          cachedGuests.unshift({
+            id: data.id,
+            mac: data.mac,
+            name: data.name || "",
+            reason: data.reason || "",
+            status: "ACTIVE",
+            approved_by: data.approved_by || "admin",
+            approved_at: data.approved_at || now,
+            expires_at: expiresAt,
+            duration_minutes: durationMins,
+            time_remaining_seconds: Math.max(0, expiresAt - now),
+            online: false,
+            ip: "",
+            hostname: "",
+            usergroup_id: "",
+          });
+        }
+        renderGuestsTable();
+        updateGuestBadge();
+      } catch (e) {
+        console.error("Error processing guest_authorized event", e);
+      }
+    });
+
+    adminEventSource.addEventListener("guest_denied", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const normMac = (data.mac || "").toLowerCase().trim();
+        const existing = cachedGuests.find((g) => (g.mac || "").toLowerCase().trim() === normMac);
+        if (existing) {
+          existing.status = "DENIED";
+          existing.revoked_by = data.denied_by || "admin";
+          existing.revoked_at = Math.floor(Date.now() / 1000);
+        }
+        renderGuestsTable();
+        updateGuestBadge();
+      } catch (e) {
+        console.error("Error processing guest_denied event", e);
+      }
+    });
+
+    adminEventSource.addEventListener("guest_revoked", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const normMac = (data.mac || "").toLowerCase().trim();
+        const existing = cachedGuests.find((g) => (g.mac || "").toLowerCase().trim() === normMac);
+        if (existing) {
+          existing.status = "REVOKED";
+          existing.revoked_by = data.revoked_by || "admin";
+          existing.revoked_at = Math.floor(Date.now() / 1000);
+        }
+        renderGuestsTable();
+        updateGuestBadge();
+      } catch (e) {
+        console.error("Error processing guest_revoked event", e);
+      }
+    });
+
     adminEventSource.addEventListener("guest_profile_updated", (event) => {
       try {
         const data = JSON.parse(event.data);
-        const mac = (data.mac || "").toLowerCase();
+        const mac = (data.mac || "").toLowerCase().trim();
         const usergroupId = data.usergroup_id;
 
-        const g = cachedGuests.find((x) => (x.mac || "").toLowerCase() === mac);
+        const g = cachedGuests.find((x) => (x.mac || "").toLowerCase().trim() === mac);
         if (g) {
           g.usergroup_id = usergroupId;
         }
@@ -231,7 +341,7 @@
         const selects = document.querySelectorAll(".guest-active-profile-select");
         let found = false;
         selects.forEach((sel) => {
-          if ((sel.dataset.mac || "").toLowerCase() === mac) {
+          if ((sel.dataset.mac || "").toLowerCase().trim() === mac) {
             sel.value = usergroupId;
             sel.dataset.prevValue = usergroupId;
             found = true;
@@ -251,6 +361,9 @@
       refreshAll(false);
     };
   }
+
+  const initSSE = connectSSE;
+  window.initSSE = initSSE;
 
   // --- Initial Setup ---
   async function init() {
@@ -839,33 +952,61 @@
     }
   }
 
-  function formatProfileRates(group) {
+  function formatProfileRates(group, isDefault = false) {
     if (!group) return "";
     const down = group.down_kbps;
     const up = group.up_kbps;
     const hasDown = down != null && down > 0;
     const hasUp = up != null && up > 0;
-    if (!hasDown && !hasUp) {
-      return " (Unlimited)";
-    }
+
     const fmt = (kbps) => {
       if (!kbps || kbps <= 0) return "Unlimited";
-      const mbps = kbps / 1000;
-      return (Number.isInteger(mbps) ? mbps : mbps.toFixed(1)) + " Mbps";
+      if (kbps >= 1000) {
+        const mbps = kbps / 1000;
+        return (Number.isInteger(mbps) ? mbps.toFixed(1) : mbps.toFixed(1)) + " Mbps";
+      }
+      return `${kbps} Kbps`;
     };
-    return ` (${fmt(down)} / ${fmt(up)})`;
+
+    if (!hasDown && !hasUp) {
+      return isDefault ? "(Default - Unlimited)" : "(Unlimited)";
+    }
+
+    const rates = `${fmt(down)} / ${fmt(up)}`;
+    return isDefault ? `(Default - ${rates})` : `(${rates})`;
   }
 
   function getDefaultProfileId() {
     if (!cachedSpeedProfiles || cachedSpeedProfiles.length === 0) return "";
-    const found = cachedSpeedProfiles.find((g) => {
-      const n = (g.name || "").toLowerCase();
-      return n === "default" || n === "guest";
-    }) || cachedSpeedProfiles.find((g) => {
-      const n = (g.name || "").toLowerCase();
-      return n.includes("default") || n.includes("guest");
-    }) || cachedSpeedProfiles[0];
+    let found = cachedSpeedProfiles.find((g) => (g.name || "").toLowerCase() === "guest speed");
+    if (!found) {
+      found = cachedSpeedProfiles.find((g) => (g.name || "").toLowerCase() === "guest")
+        || cachedSpeedProfiles.find((g) => (g.name || "").toLowerCase().includes("guest"));
+    }
+    if (!found) {
+      found = cachedSpeedProfiles.find((g) => (g.name || "").toLowerCase() === "default")
+        || cachedSpeedProfiles.find((g) => (g.name || "").toLowerCase().includes("default"));
+    }
+    if (!found) {
+      found = cachedSpeedProfiles[0];
+    }
     return found ? found.id : "";
+  }
+
+  function updateGuestBadge() {
+    const pendingCount = cachedGuests.filter((g) => g.status === "PENDING").length;
+    if (guestsCounter) {
+      guestsCounter.textContent = pendingCount;
+      if (pendingCount === 0) {
+        guestsCounter.classList.add("hidden");
+      } else {
+        guestsCounter.classList.remove("hidden");
+      }
+    }
+    const pendingCounter = document.getElementById("pending-guests-counter");
+    if (pendingCounter) {
+      pendingCounter.textContent = pendingCount;
+    }
   }
 
   async function refreshGuests() {
@@ -877,7 +1018,7 @@
       if (!resp.ok) return [];
       const guests = await resp.json();
       cachedGuests = guests;
-      if (guestsCounter) guestsCounter.textContent = guests.length;
+      updateGuestBadge();
 
       renderGuestsTable();
       startGuestCountdownTimer();
@@ -930,7 +1071,8 @@
             ? `<select class="filter-select guest-pending-profile-select" data-mac="${escapeHtml(p.mac)}" style="padding: 4px 8px; font-size: 0.8rem;">
                 ${cachedSpeedProfiles.map((grp) => {
                   const isSel = (p.usergroup_id ? grp.id === p.usergroup_id : grp.id === defaultProfileId) ? "selected" : "";
-                  return `<option value="${escapeHtml(grp.id)}"${isSel ? " selected" : ""}>${escapeHtml(grp.name)}${formatProfileRates(grp)}</option>`;
+                  const isDefault = grp.id === defaultProfileId;
+                  return `<option value="${escapeHtml(grp.id)}"${isSel ? " selected" : ""}>${escapeHtml(grp.name)} ${formatProfileRates(grp, isDefault)}</option>`;
                 }).join("")}
               </select>`
             : `<span style="color:var(--text-muted); font-size:0.8rem;">-</span>`;
@@ -1010,6 +1152,8 @@
         statusBadge = `<span class="badge badge-revoked">Revoked</span>`;
       } else if (g.status === "EXPIRED") {
         statusBadge = `<span class="badge badge-expired">Expired</span>`;
+      } else if (g.status === "DENIED") {
+        statusBadge = `<span class="badge badge-revoked" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">Denied</span>`;
       }
 
       const ipInfo = g.ip ? `<code>${escapeHtml(g.ip)}</code>` : `<span style="color:var(--text-muted);">-</span>`;
@@ -1027,7 +1171,8 @@
           }
           const optionsHtml = extraOption + cachedSpeedProfiles.map((grp) => {
             const isSelected = (!extraOption && grp.id === currentGroupId) ? "selected" : "";
-            return `<option value="${escapeHtml(grp.id)}"${isSelected ? " selected" : ""}>${escapeHtml(grp.name)}${formatProfileRates(grp)}</option>`;
+            const isDefault = grp.id === defaultProfileId;
+            return `<option value="${escapeHtml(grp.id)}"${isSelected ? " selected" : ""}>${escapeHtml(grp.name)} ${formatProfileRates(grp, isDefault)}</option>`;
           }).join("");
 
           speedProfileHtml = `
@@ -1042,7 +1187,7 @@
           speedProfileHtml = `<span style="color:var(--text-muted); font-size:0.8rem;">-</span>`;
         }
       } else {
-        // EXPIRED or REVOKED
+        // EXPIRED, REVOKED, or DENIED
         let profileName = "-";
         if (g.usergroup_id) {
           const matched = cachedSpeedProfiles.find((grp) => grp.id === g.usergroup_id);
@@ -1051,13 +1196,13 @@
         speedProfileHtml = `<span style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(profileName)}</span>`;
       }
 
-      const countdownHtml = (g.status === "REVOKED")
-        ? `<span style="color:var(--text-muted);">Revoked</span>`
+      const countdownHtml = (g.status === "REVOKED" || g.status === "DENIED")
+        ? `<span style="color:var(--text-muted);">${g.status === "DENIED" ? "Denied" : "Revoked"}</span>`
         : `<span class="guest-countdown" data-expires="${g.expires_at}">${formatCountdown(g.time_remaining_seconds)}</span>`;
 
       const actionBtn = (g.status === "ACTIVE")
         ? `<button class="btn-sm btn-reject" data-action="kick-guest" data-mac="${escapeHtml(g.mac)}" data-name="${escapeHtml(g.name)}">🚫 Kick &amp; Revoke</button>`
-        : `<span style="color:var(--text-muted); font-size:0.8rem;">Completed</span>`;
+        : `<span style="color:var(--text-muted); font-size:0.8rem;">${g.status === "DENIED" ? "Denied" : "Completed"}</span>`;
 
       tr.innerHTML = `
         <td>
@@ -1077,6 +1222,8 @@
       `;
       guestsTbody.appendChild(tr);
     });
+
+    updateGuestBadge();
   }
 
   function startGuestCountdownTimer() {

@@ -230,6 +230,71 @@ def test_guest_session_crud(db):
     assert updated_sessions[0]["status"] == "REVOKED"
     assert updated_sessions[0]["revoked_by"] == "admin@example.com"
 
+
+def test_record_guest_session_upsert_pending(db):
+    now = int(time.time())
+    # 1. Record a pending guest session
+    pending_id = db.record_pending_guest(
+        mac="AA:BB:CC:DD:EE:FF",
+        name="Pending Bob",
+        reason="Interview",
+        duration_minutes=1440,
+        requested_at=now,
+    )
+    assert pending_id > 0
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == pending_id
+    assert sessions[0]["status"] == "PENDING"
+    assert sessions[0]["name"] == "Pending Bob"
+
+    # 2. Authorize via record_guest_session with same MAC (case-insensitive)
+    auth_id = db.record_guest_session(
+        mac="aa:bb:cc:dd:ee:ff",
+        name="Bob Smith",
+        reason="Final Interview",
+        duration_minutes=2880,
+        approved_by="slack_approver",
+        approved_at=now + 60,
+        expires_at=now + 60 + 2880 * 60,
+    )
+    # Must return existing row id, NOT create a duplicate
+    assert auth_id == pending_id
+
+    sessions_after = db.list_guest_sessions()
+    assert len(sessions_after) == 1
+    session = sessions_after[0]
+    assert session["id"] == pending_id
+    assert session["status"] == "ACTIVE"
+    assert session["name"] == "Bob Smith"
+    assert session["reason"] == "Final Interview"
+    assert session["duration_minutes"] == 2880
+    assert session["approved_by"] == "slack_approver"
+    assert session["approved_at"] == now + 60
+    assert session["expires_at"] == now + 60 + 2880 * 60
+
+
+def test_deny_guest_session(db):
+    now = int(time.time())
+    pending_id = db.record_pending_guest(
+        mac="11:22:33:44:55:66",
+        name="Charlie",
+        reason="Visitor",
+        duration_minutes=1440,
+        requested_at=now,
+    )
+    assert pending_id > 0
+
+    ok = db.deny_guest_session("11:22:33:44:55:66", denied_by="admin@spoutin.org")
+    assert ok is True
+
+    sessions = db.list_guest_sessions()
+    denied_session = next(s for s in sessions if s["id"] == pending_id)
+    assert denied_session["status"] == "DENIED"
+    assert denied_session["revoked_by"] == "admin@spoutin.org"
+    assert denied_session["revoked_at"] is not None
+
     # Revoking makes device_name_exists return False
     db.revoke_certificate(serial_number="7777", reason="Retired", scope="CERT_ONLY")
     assert db.device_name_exists("device-req-test") is False

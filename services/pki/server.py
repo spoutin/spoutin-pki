@@ -165,6 +165,13 @@ class GuestAuthorizedBody(BaseModel):
     expires_at: int
 
 
+class GuestStatusBody(BaseModel):
+    status: str
+    processedBy: Optional[str] = None
+    processed_by: Optional[str] = None
+    denied_by: Optional[str] = None
+
+
 class UpdateGuestProfileBody(BaseModel):
     usergroup_id: str
 
@@ -1243,6 +1250,7 @@ def create_app(
                 "reason": body.reason,
                 "duration_minutes": body.duration_minutes,
                 "requested_at": body.requested_at,
+                "status": "PENDING",
             },
         )
         return {"status": "ok", "id": session_id}
@@ -1290,10 +1298,47 @@ def create_app(
                 "name": body.name,
                 "reason": body.reason,
                 "approved_by": body.approved_by,
+                "duration_minutes": body.duration_minutes,
+                "approved_at": body.approved_at,
                 "expires_at": body.expires_at,
             },
         )
         return {"status": "ok", "id": session_id}
+
+    @app.post("/api/internal/guest/{mac}/status")
+    def internal_guest_status(
+        mac: str,
+        body: GuestStatusBody,
+        request: Request,
+    ):
+        auth_header = request.headers.get("Authorization", "").strip()
+        bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+        incoming_token = bearer_token or request.headers.get("X-Internal-Secret", "").strip()
+
+        is_valid = False
+        if incoming_token and db.verify_and_touch_token(incoming_token):
+            is_valid = True
+        else:
+            expected_secret = resolve_internal_secret(app.state.ca_client)
+            if expected_secret and incoming_token == expected_secret:
+                is_valid = True
+
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Unauthorized internal request")
+
+        norm_mac = mac.lower().strip()
+        processed_by = body.processedBy or body.processed_by or body.denied_by or "admin"
+        status_val = (body.status or "").lower().strip()
+
+        if status_val == "denied":
+            db.deny_guest_session(norm_mac, denied_by=processed_by)
+            bc.publish_admin(
+                event="guest_denied",
+                data={"mac": norm_mac, "denied_by": processed_by},
+            )
+            return {"status": "denied", "mac": norm_mac}
+
+        return {"status": "ok", "mac": norm_mac}
 
     # ================= ADMIN TOKEN ROUTES =================
 
@@ -1492,9 +1537,13 @@ def create_app(
         bc.publish_admin(
             event="guest_authorized",
             data={
+                "id": guest_req.get("id"),
                 "mac": norm_mac,
+                "name": guest_req.get("name", ""),
+                "reason": guest_req.get("reason", ""),
                 "approved_by": admin_name,
                 "duration_minutes": duration_mins,
+                "approved_at": now,
                 "expires_at": expires_at,
             },
         )

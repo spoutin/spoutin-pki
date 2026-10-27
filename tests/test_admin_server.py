@@ -459,28 +459,97 @@ def test_internal_guest_authorized_endpoint(admin_test_app):
     )
     assert resp_no_secret.status_code == 401
 
+    # Pre-record a pending session to verify upsert behavior
+    pending_id = db.record_pending_guest(
+        mac="00:11:22:33:44:55",
+        name="Guest Alice",
+        reason="Meeting",
+        duration_minutes=1440,
+        requested_at=900,
+    )
+
     # With valid secret
     with patch("services.pki.server.resolve_internal_secret", return_value="valid-token-123"):
-        resp = client.post(
-            "/api/internal/guest-authorized",
-            headers={"X-Internal-Secret": "valid-token-123"},
-            json={
-                "mac": "00:11:22:33:44:55",
-                "name": "Guest Alice",
-                "reason": "Meeting",
-                "duration_minutes": 1440,
-                "approved_by": "admin",
-                "approved_at": 1000,
-                "expires_at": 1000 + 86400,
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        with patch.object(client.app.state.broadcaster, "publish_admin") as mock_publish:
+            resp = client.post(
+                "/api/internal/guest-authorized",
+                headers={"X-Internal-Secret": "valid-token-123"},
+                json={
+                    "mac": "00:11:22:33:44:55",
+                    "name": "Guest Alice",
+                    "reason": "Meeting",
+                    "duration_minutes": 1440,
+                    "approved_by": "admin",
+                    "approved_at": 1000,
+                    "expires_at": 1000 + 86400,
+                },
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "ok"
+            assert resp.json()["id"] == pending_id
+
+            mock_publish.assert_called_once_with(
+                event="guest_authorized",
+                data={
+                    "id": pending_id,
+                    "mac": "00:11:22:33:44:55",
+                    "name": "Guest Alice",
+                    "reason": "Meeting",
+                    "approved_by": "admin",
+                    "duration_minutes": 1440,
+                    "approved_at": 1000,
+                    "expires_at": 1000 + 86400,
+                },
+            )
 
     sessions = db.list_guest_sessions()
     assert len(sessions) == 1
+    assert sessions[0]["id"] == pending_id
     assert sessions[0]["mac"] == "00:11:22:33:44:55"
     assert sessions[0]["name"] == "Guest Alice"
+    assert sessions[0]["status"] == "ACTIVE"
+
+
+def test_internal_guest_status_denied(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Pre-record a pending session
+    pending_id = db.record_pending_guest(
+        mac="aa:bb:cc:dd:ee:99",
+        name="Guest Denied",
+        reason="Interview",
+        duration_minutes=1440,
+        requested_at=950,
+    )
+
+    # Missing X-Internal-Secret returns 401
+    resp_no_secret = client.post(
+        "/api/internal/guest/aa:bb:cc:dd:ee:99/status",
+        json={"status": "denied", "processedBy": "slack_admin"},
+    )
+    assert resp_no_secret.status_code == 401
+
+    # With valid secret
+    with patch("services.pki.server.resolve_internal_secret", return_value="valid-token-123"):
+        with patch.object(client.app.state.broadcaster, "publish_admin") as mock_publish:
+            resp = client.post(
+                "/api/internal/guest/aa:bb:cc:dd:ee:99/status",
+                headers={"X-Internal-Secret": "valid-token-123"},
+                json={"status": "denied", "processedBy": "slack_admin"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "denied"
+            assert resp.json()["mac"] == "aa:bb:cc:dd:ee:99"
+
+            mock_publish.assert_called_once_with(
+                event="guest_denied",
+                data={"mac": "aa:bb:cc:dd:ee:99", "denied_by": "slack_admin"},
+            )
+
+    sessions = db.list_guest_sessions()
+    session = next(s for s in sessions if s["id"] == pending_id)
+    assert session["status"] == "DENIED"
+    assert session["revoked_by"] == "slack_admin"
 
 
 def test_admin_list_and_revoke_guests(admin_test_app):
