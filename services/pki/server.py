@@ -334,7 +334,7 @@ def create_app(
 
     app = FastAPI(
         title="Spoutin PKI Certificate Portal & Admin Dashboard",
-        version="0.3.16",
+        version="0.3.17",
         lifespan=lifespan,
     )
 
