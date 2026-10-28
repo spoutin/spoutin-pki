@@ -885,6 +885,92 @@ def test_admin_guest_portal_notification_failure_logging(admin_test_app, caplog)
             assert "Could not notify captive portal of remote denial: Connection refused" in caplog.text
 
 
+def test_admin_approve_guest_idempotent_and_in_flight(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Create a pending guest session
+    db.record_pending_guest(
+        mac="00:11:22:33:44:77",
+        name="Pending Guest",
+        reason="Testing Idempotency",
+        duration_minutes=120,
+        requested_at=1000,
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.authorize_guest.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch("services.pki.server.requests.post"):
+        # First approval
+        resp1 = client.post("/api/admin/guests/00:11:22:33:44:77/approve")
+        assert resp1.status_code == 200
+        assert resp1.json()["status"] == "approved"
+        assert mock_unifi.authorize_guest.call_count == 1
+
+        # Second approval on already active session should return already_approved
+        resp2 = client.post("/api/admin/guests/00:11:22:33:44:77/approve")
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "already_approved"
+        assert resp2.json()["duration_minutes"] == 120
+        # Should not re-authorize on UniFi
+        assert mock_unifi.authorize_guest.call_count == 1
+
+
+def test_admin_deny_guest_idempotent(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    # Create a pending guest session
+    db.record_pending_guest(
+        mac="00:11:22:33:44:88",
+        name="Pending Guest",
+        reason="Testing Deny Idempotency",
+        duration_minutes=120,
+        requested_at=1000,
+    )
+
+    with patch("services.pki.server.requests.post"):
+        # First denial
+        resp1 = client.post("/api/admin/guests/00:11:22:33:44:88/deny")
+        assert resp1.status_code == 200
+        assert resp1.json()["status"] == "denied"
+
+        # Second denial
+        resp2 = client.post("/api/admin/guests/00:11:22:33:44:88/deny")
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "already_denied"
+
+
+def test_admin_guest_in_flight_lock(admin_test_app):
+    from services.pki.server import _guest_action_lock, _in_flight_guest_actions
+
+    client, _, db, _, _, _ = admin_test_app
+
+    db.record_pending_guest(
+        mac="00:11:22:33:44:66",
+        name="Pending In Flight",
+        reason="Testing lock",
+        duration_minutes=60,
+        requested_at=1000,
+    )
+
+    with _guest_action_lock:
+        _in_flight_guest_actions.add("00:11:22:33:44:66")
+
+    try:
+        resp = client.post("/api/admin/guests/00:11:22:33:44:66/approve")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "in_progress", "mac": "00:11:22:33:44:66"}
+
+        deny_resp = client.post("/api/admin/guests/00:11:22:33:44:66/deny")
+        assert deny_resp.status_code == 200
+        assert deny_resp.json() == {"status": "in_progress", "mac": "00:11:22:33:44:66"}
+    finally:
+        with _guest_action_lock:
+            _in_flight_guest_actions.discard("00:11:22:33:44:66")
+
+
+
 
 
 

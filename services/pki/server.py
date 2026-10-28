@@ -88,6 +88,10 @@ def get_client_ip(request: Request) -> str:
     return "127.0.0.1"
 
 
+_guest_action_lock = threading.Lock()
+_in_flight_guest_actions = set()
+
+
 # --- Request Bodies for Admin API ---
 class ApproveRequestBody(BaseModel):
     approved_name: Optional[str] = None
@@ -1487,114 +1491,146 @@ def create_app(
         norm_mac = mac.lower().strip()
         admin_name = admin.get("email") or admin.get("name", "admin")
 
-        sessions = db.list_guest_sessions(limit=500)
-        guest_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "PENDING"), None)
-        if not guest_req:
-            raise HTTPException(status_code=404, detail="Pending guest request not found")
+        with _guest_action_lock:
+            if norm_mac in _in_flight_guest_actions:
+                return {"status": "in_progress", "mac": norm_mac}
+            _in_flight_guest_actions.add(norm_mac)
 
-        duration_mins = (body.duration_minutes if body and body.duration_minutes else None) or guest_req["duration_minutes"] or 1440
-        now = int(time.time())
-        expires_at = now + duration_mins * 60
-
-        # Authorize on UniFi Controller
-        unifi = get_unifi_client()
-
-        up_kbps = None
-        down_kbps = None
-        if body and body.usergroup_id:
-            groups = unifi.get_user_groups()
-            group_match = next((g for g in groups if g.get("id") == body.usergroup_id), None)
-            if group_match:
-                up_val = group_match.get("up_kbps")
-                down_val = group_match.get("down_kbps")
-                if up_val is not None and up_val > 0:
-                    up_kbps = up_val
-                if down_val is not None and down_val > 0:
-                    down_kbps = down_val
-
-        success = unifi.authorize_guest(norm_mac, duration_mins, up_kbps=up_kbps, down_kbps=down_kbps)
-        if not success:
-            raise HTTPException(status_code=502, detail="Failed to authorize guest on UniFi Controller")
-
-        if body and body.usergroup_id:
-            unifi.set_client_user_group(norm_mac, body.usergroup_id)
-
-        db.approve_guest_session(
-            mac=norm_mac,
-            approved_by=admin_name,
-            duration_minutes=duration_mins,
-            approved_at=now,
-            expires_at=expires_at,
-        )
-
-        # Notify unifi-guest-portal to unlock guest's polling browser and update Slack
-        portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
-        secret = resolve_internal_secret(app.state.ca_client)
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            headers["X-Internal-Secret"] = secret
-            headers["Authorization"] = f"Bearer {secret}"
-        status = "approval"
         try:
-            requests.post(
-                f"{portal_url}/api/internal/guest/{norm_mac}/status",
-                json={"status": "approved", "processedBy": admin_name, "durationMinutes": duration_mins},
-                headers=headers,
-                timeout=4,
-                verify=False,
-            )
-            logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
-        except Exception as e:
-            logger.warning(f"Could not notify captive portal of remote {status}: {e}")
+            sessions = db.list_guest_sessions(limit=500)
+            guest_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "PENDING"), None)
+            if not guest_req:
+                active_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "ACTIVE"), None)
+                if active_req:
+                    return {"status": "already_approved", "mac": norm_mac, "duration_minutes": active_req.get("duration_minutes", 1440)}
+                raise HTTPException(status_code=404, detail="Pending guest request not found")
 
-        bc.publish_admin(
-            event="guest_authorized",
-            data={
-                "id": guest_req.get("id"),
-                "mac": norm_mac,
-                "name": guest_req.get("name", ""),
-                "reason": guest_req.get("reason", ""),
-                "approved_by": admin_name,
-                "duration_minutes": duration_mins,
-                "approved_at": now,
-                "expires_at": expires_at,
-                "usergroup_id": body.usergroup_id if body else None,
-            },
-        )
-        return {"status": "approved", "mac": norm_mac, "duration_minutes": duration_mins}
+            duration_mins = (body.duration_minutes if body and body.duration_minutes else None) or guest_req["duration_minutes"] or 1440
+            now = int(time.time())
+            expires_at = now + duration_mins * 60
+
+            # Authorize on UniFi Controller
+            unifi = get_unifi_client()
+
+            up_kbps = None
+            down_kbps = None
+            if body and body.usergroup_id:
+                groups = unifi.get_user_groups()
+                group_match = next((g for g in groups if g.get("id") == body.usergroup_id), None)
+                if group_match:
+                    up_val = group_match.get("up_kbps")
+                    down_val = group_match.get("down_kbps")
+                    if up_val is not None and up_val > 0:
+                        up_kbps = up_val
+                    if down_val is not None and down_val > 0:
+                        down_kbps = down_val
+
+            success = unifi.authorize_guest(norm_mac, duration_mins, up_kbps=up_kbps, down_kbps=down_kbps)
+            if not success:
+                raise HTTPException(status_code=502, detail="Failed to authorize guest on UniFi Controller")
+
+            if body and body.usergroup_id:
+                unifi.set_client_user_group(norm_mac, body.usergroup_id)
+
+            db.approve_guest_session(
+                mac=norm_mac,
+                approved_by=admin_name,
+                duration_minutes=duration_mins,
+                approved_at=now,
+                expires_at=expires_at,
+            )
+
+            # Notify unifi-guest-portal to unlock guest's polling browser and update Slack
+            portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
+            secret = resolve_internal_secret(app.state.ca_client)
+            headers = {"Content-Type": "application/json"}
+            if secret:
+                headers["X-Internal-Secret"] = secret
+                headers["Authorization"] = f"Bearer {secret}"
+            status = "approval"
+            try:
+                requests.post(
+                    f"{portal_url}/api/internal/guest/{norm_mac}/status",
+                    json={"status": "approved", "processedBy": admin_name, "durationMinutes": duration_mins},
+                    headers=headers,
+                    timeout=4,
+                    verify=False,
+                )
+                logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
+            except Exception as e:
+                logger.warning(f"Could not notify captive portal of remote {status}: {e}")
+
+            bc.publish_admin(
+                event="guest_authorized",
+                data={
+                    "id": guest_req.get("id"),
+                    "mac": norm_mac,
+                    "name": guest_req.get("name", ""),
+                    "reason": guest_req.get("reason", ""),
+                    "approved_by": admin_name,
+                    "duration_minutes": duration_mins,
+                    "approved_at": now,
+                    "expires_at": expires_at,
+                    "usergroup_id": body.usergroup_id if body else None,
+                },
+            )
+            return {"status": "approved", "mac": norm_mac, "duration_minutes": duration_mins}
+        finally:
+            with _guest_action_lock:
+                _in_flight_guest_actions.discard(norm_mac)
 
     @app.post("/api/admin/guests/{mac}/deny")
     def deny_admin_guest(mac: str, admin: dict = Depends(require_admin)):
         norm_mac = mac.lower().strip()
         admin_name = admin.get("email") or admin.get("name", "admin")
 
-        db.deny_guest_session(norm_mac, denied_by=admin_name)
+        with _guest_action_lock:
+            if norm_mac in _in_flight_guest_actions:
+                return {"status": "in_progress", "mac": norm_mac}
+            _in_flight_guest_actions.add(norm_mac)
 
-        # Notify unifi-guest-portal to inform polling browser and update Slack
-        portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
-        secret = resolve_internal_secret(app.state.ca_client)
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            headers["X-Internal-Secret"] = secret
-            headers["Authorization"] = f"Bearer {secret}"
-        status = "denial"
         try:
-            requests.post(
-                f"{portal_url}/api/internal/guest/{norm_mac}/status",
-                json={"status": "denied", "processedBy": admin_name},
-                headers=headers,
-                timeout=4,
-                verify=False,
-            )
-            logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
-        except Exception as e:
-            logger.warning(f"Could not notify captive portal of remote {status}: {e}")
+            sessions = db.list_guest_sessions(limit=500)
+            guest_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "PENDING"), None)
+            if not guest_req:
+                denied_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "DENIED"), None)
+                if denied_req:
+                    return {"status": "already_denied", "mac": norm_mac}
+                active_req = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "ACTIVE"), None)
+                if active_req:
+                    return {"status": "already_approved", "mac": norm_mac}
+                raise HTTPException(status_code=404, detail="Pending guest request not found")
 
-        bc.publish_admin(
-            event="guest_denied",
-            data={"mac": norm_mac, "denied_by": admin_name},
-        )
-        return {"status": "denied", "mac": norm_mac}
+            db.deny_guest_session(norm_mac, denied_by=admin_name)
+
+            # Notify unifi-guest-portal to inform polling browser and update Slack
+            portal_url = settings.GUEST_PORTAL_INTERNAL_URL.rstrip("/")
+            secret = resolve_internal_secret(app.state.ca_client)
+            headers = {"Content-Type": "application/json"}
+            if secret:
+                headers["X-Internal-Secret"] = secret
+                headers["Authorization"] = f"Bearer {secret}"
+            status = "denial"
+            try:
+                requests.post(
+                    f"{portal_url}/api/internal/guest/{norm_mac}/status",
+                    json={"status": "denied", "processedBy": admin_name},
+                    headers=headers,
+                    timeout=4,
+                    verify=False,
+                )
+                logger.info(f"Notified captive portal of {norm_mac} remote {status} via {portal_url}")
+            except Exception as e:
+                logger.warning(f"Could not notify captive portal of remote {status}: {e}")
+
+            bc.publish_admin(
+                event="guest_denied",
+                data={"mac": norm_mac, "denied_by": admin_name},
+            )
+            return {"status": "denied", "mac": norm_mac}
+        finally:
+            with _guest_action_lock:
+                _in_flight_guest_actions.discard(norm_mac)
 
     @app.post("/api/admin/guests/sync")
     def sync_admin_guests(admin: dict = Depends(require_admin)):

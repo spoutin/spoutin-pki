@@ -634,6 +634,26 @@ class CertificateDatabase:
                 self._conn.commit()
                 return session_id
 
+            # Check if an ACTIVE session already exists and hasn't expired
+            cur.execute(
+                "SELECT id FROM guest_sessions WHERE mac = ? AND status = 'ACTIVE' AND expires_at > ? ORDER BY id DESC LIMIT 1",
+                (norm_mac, int(time.time())),
+            )
+            active_row = cur.fetchone()
+            if active_row:
+                session_id = active_row[0]
+                cur.execute(
+                    """
+                    UPDATE guest_sessions
+                    SET name = ?, reason = ?, duration_minutes = ?, approved_by = ?,
+                        approved_at = ?, expires_at = ?
+                    WHERE id = ?
+                    """,
+                    (name, reason, duration_minutes, approved_by, approved_at, expires_at, session_id),
+                )
+                self._conn.commit()
+                return session_id
+
             cur.execute(
                 """
                 INSERT INTO guest_sessions (

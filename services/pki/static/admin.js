@@ -34,6 +34,7 @@
   let cachedGuests = [];
   let cachedSpeedProfiles = [];
   let guestCountdownInterval = null;
+  const inFlightGuestActions = new Set();
 
   const adminQuickSignForm = document.getElementById("admin-quick-sign-form");
   const qsResult = document.getElementById("qs-result");
@@ -1260,42 +1261,66 @@
       const mac = btn.dataset.mac;
       if (!mac) return;
 
-      if (approveBtn) {
-        const select = pendingGuestsTbody.querySelector(`.guest-duration-select[data-mac='${mac}']`);
-        const profSelect = pendingGuestsTbody.querySelector(`.guest-pending-profile-select[data-mac='${mac}']`);
-        const durationMins = select ? parseInt(select.value, 10) : 1440;
-        const usergroupId = profSelect ? profSelect.value : undefined;
+      if (inFlightGuestActions.has(mac)) return;
 
-        setButtonLoading(approveBtn, "Approving...");
-        try {
-          const resp = await adminFetch(`/api/admin/guests/${mac}/approve`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              duration_minutes: durationMins,
-              usergroup_id: usergroupId || undefined,
-            }),
-          });
-          if (!resp.ok) throw new Error("Approval failed");
-          await refreshGuests();
-        } catch (err) {
-          alert("Failed to approve guest: " + err.message);
-        } finally {
-          restoreButton(approveBtn);
+      if (denyBtn && !confirm(`Deny access for ${mac}?`)) return;
+
+      inFlightGuestActions.add(mac);
+      btn.disabled = true;
+      btn.style.pointerEvents = "none";
+      const row = btn.closest("tr");
+      if (row) {
+        row.querySelectorAll("button, select").forEach((el) => {
+          el.disabled = true;
+          el.style.pointerEvents = "none";
+        });
+      }
+
+      try {
+        if (approveBtn) {
+          const select = pendingGuestsTbody.querySelector(`.guest-duration-select[data-mac='${mac}']`);
+          const profSelect = pendingGuestsTbody.querySelector(`.guest-pending-profile-select[data-mac='${mac}']`);
+          const durationMins = select ? parseInt(select.value, 10) : 1440;
+          const usergroupId = profSelect ? profSelect.value : undefined;
+
+          setButtonLoading(approveBtn, "Approving...");
+          try {
+            const resp = await adminFetch(`/api/admin/guests/${mac}/approve`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                duration_minutes: durationMins,
+                usergroup_id: usergroupId || undefined,
+              }),
+            });
+            if (!resp.ok) throw new Error("Approval failed");
+            await refreshGuests();
+          } catch (err) {
+            alert("Failed to approve guest: " + err.message);
+          } finally {
+            restoreButton(approveBtn);
+          }
+        } else if (denyBtn) {
+          setButtonLoading(denyBtn, "Denying...");
+          try {
+            const resp = await adminFetch(`/api/admin/guests/${mac}/deny`, {
+              method: "POST",
+            });
+            if (!resp.ok) throw new Error("Denial failed");
+            await refreshGuests();
+          } catch (err) {
+            alert("Failed to deny guest: " + err.message);
+          } finally {
+            restoreButton(denyBtn);
+          }
         }
-      } else if (denyBtn) {
-        if (!confirm(`Deny access for ${mac}?`)) return;
-        setButtonLoading(denyBtn, "Denying...");
-        try {
-          const resp = await adminFetch(`/api/admin/guests/${mac}/deny`, {
-            method: "POST",
+      } finally {
+        inFlightGuestActions.delete(mac);
+        if (row) {
+          row.querySelectorAll("button, select").forEach((el) => {
+            el.disabled = false;
+            el.style.pointerEvents = "";
           });
-          if (!resp.ok) throw new Error("Denial failed");
-          await refreshGuests();
-        } catch (err) {
-          alert("Failed to deny guest: " + err.message);
-        } finally {
-          restoreButton(denyBtn);
         }
       }
     });

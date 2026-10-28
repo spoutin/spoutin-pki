@@ -274,6 +274,56 @@ def test_record_guest_session_upsert_pending(db):
     assert session["approved_at"] == now + 60
     assert session["expires_at"] == now + 60 + 2880 * 60
 
+    # 3. Subsequent record_guest_session with active session returns existing ID and updates details
+    active_id = db.record_guest_session(
+        mac="AA:BB:CC:DD:EE:FF",
+        name="Bob Smith Updated",
+        reason="Updated reason",
+        duration_minutes=2880,
+        approved_by="slack_approver_2",
+        approved_at=now + 120,
+        expires_at=now + 120 + 2880 * 60,
+    )
+    assert active_id == pending_id
+    sessions_after_update = db.list_guest_sessions()
+    assert len(sessions_after_update) == 1
+    session_updated = sessions_after_update[0]
+    assert session_updated["id"] == pending_id
+    assert session_updated["name"] == "Bob Smith Updated"
+    assert session_updated["approved_by"] == "slack_approver_2"
+
+
+def test_approve_guest_session_atomic(db):
+    now = int(time.time())
+    pending_id = db.record_pending_guest(
+        mac="00:11:22:33:44:99",
+        name="Atomic Test",
+        reason="Testing Atomic Approval",
+        duration_minutes=60,
+        requested_at=now,
+    )
+    assert pending_id > 0
+
+    # First approval should succeed
+    res1 = db.approve_guest_session(
+        mac="00:11:22:33:44:99",
+        approved_by="admin",
+        duration_minutes=60,
+        approved_at=now,
+        expires_at=now + 3600,
+    )
+    assert res1 is True
+
+    # Second approval on already ACTIVE session should return False
+    res2 = db.approve_guest_session(
+        mac="00:11:22:33:44:99",
+        approved_by="admin",
+        duration_minutes=60,
+        approved_at=now,
+        expires_at=now + 3600,
+    )
+    assert res2 is False
+
 
 def test_deny_guest_session(db):
     now = int(time.time())
