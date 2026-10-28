@@ -166,6 +166,36 @@ class UnifiControllerClient:
                 })
         return groups
 
+    def get_default_user_group(self) -> Optional[dict[str, Any]]:
+        """Find the default user group / speed profile for guests."""
+        groups = self.get_user_groups()
+        if not groups:
+            return None
+
+        # 1. Exact match "guest speed"
+        found = next((g for g in groups if (g.get("name") or "").lower().strip() == "guest speed"), None)
+        if found:
+            return found
+
+        # 2. Exact match "guest" or name containing "guest"
+        found = next((g for g in groups if (g.get("name") or "").lower().strip() == "guest"), None)
+        if found:
+            return found
+        found = next((g for g in groups if "guest" in (g.get("name") or "").lower()), None)
+        if found:
+            return found
+
+        # 3. Exact match "default" or name containing "default"
+        found = next((g for g in groups if (g.get("name") or "").lower().strip() == "default"), None)
+        if found:
+            return found
+        found = next((g for g in groups if "default" in (g.get("name") or "").lower()), None)
+        if found:
+            return found
+
+        # 4. Fallback to first group if any
+        return groups[0] if groups else None
+
     def get_client_usergroups_map(self) -> dict[str, str]:
         """Fetch map of client MAC -> usergroup_id from rest/user and stat/sta."""
         result: dict[str, str] = {}
@@ -214,18 +244,34 @@ class UnifiControllerClient:
     def set_client_user_group(self, mac: str, usergroup_id: str) -> bool:
         """Assign a user group / speed profile to a client by MAC address."""
         norm_mac = mac.lower().strip()
-        client = self.get_client(norm_mac)
+        try:
+            # 1. Look in active stations first (stat/sta)
+            sta_data = self._get_api("stat/sta")
+            if sta_data and isinstance(sta_data.get("data"), list):
+                stations = sta_data["data"]
+                match = next((s for s in stations if isinstance(s, dict) and s.get("mac", "").lower().strip() == norm_mac), None)
+                if match and match.get("_id"):
+                    user_id = match["_id"]
+                    self._post_api(f"upd/user/{user_id}", {"usergroup_id": usergroup_id})
+                    self._put_api(f"rest/user/{user_id}", {"usergroup_id": usergroup_id})
+                    return True
 
-        if client and client.get("_id"):
-            user_id = client["_id"]
-            # Try PUT rest/user/{user_id}
-            if self._put_api(f"rest/user/{user_id}", {"usergroup_id": usergroup_id}):
-                return True
-            # Fallback to upd/user/{user_id}
-            return self._post_api(f"upd/user/{user_id}", {"usergroup_id": usergroup_id})
+            # 2. Look in user list (rest/user)
+            user_data = self._get_api("rest/user")
+            if user_data and isinstance(user_data.get("data"), list):
+                users = user_data["data"]
+                match = next((u for u in users if isinstance(u, dict) and u.get("mac", "").lower().strip() == norm_mac), None)
+                if match and match.get("_id"):
+                    user_id = match["_id"]
+                    self._put_api(f"rest/user/{user_id}", {"usergroup_id": usergroup_id})
+                    self._post_api(f"upd/user/{user_id}", {"usergroup_id": usergroup_id})
+                    return True
 
-        # User doesn't exist in rest/user yet, create or set via rest/user
-        return self._post_api("rest/user", {"mac": norm_mac, "usergroup_id": usergroup_id})
+            # 3. If neither found, call _post_api("rest/user", {"mac": norm_mac, "usergroup_id": usergroup_id})
+            return self._post_api("rest/user", {"mac": norm_mac, "usergroup_id": usergroup_id})
+        except Exception as e:
+            logger.warning(f"UniFi set_client_user_group failed for {norm_mac}: {e}")
+            return False
 
     def authorize_guest(
         self,

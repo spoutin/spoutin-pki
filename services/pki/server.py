@@ -167,6 +167,7 @@ class GuestAuthorizedBody(BaseModel):
     approved_by: str = "admin"
     approved_at: int
     expires_at: int
+    usergroup_id: Optional[str] = None
 
 
 class GuestStatusBody(BaseModel):
@@ -1294,6 +1295,18 @@ def create_app(
             expires_at=body.expires_at,
         )
 
+        try:
+            unifi = get_unifi_client()
+            target_group_id = getattr(body, "usergroup_id", None)
+            if not target_group_id:
+                default_grp = unifi.get_default_user_group()
+                if default_grp and isinstance(default_grp, dict) and default_grp.get("id"):
+                    target_group_id = default_grp["id"]
+            if target_group_id:
+                unifi.set_client_user_group(body.mac, target_group_id)
+        except Exception as e:
+            logger.warning(f"Failed to assign speed profile in internal_guest_authorized for {body.mac}: {e}")
+
         bc.publish_admin(
             event="guest_authorized",
             data={
@@ -1512,25 +1525,34 @@ def create_app(
             # Authorize on UniFi Controller
             unifi = get_unifi_client()
 
+            target_group_id = None
+            if body and body.usergroup_id:
+                target_group_id = body.usergroup_id
+            else:
+                default_grp = unifi.get_default_user_group()
+                if default_grp and isinstance(default_grp, dict):
+                    target_group_id = default_grp.get("id")
+
             up_kbps = None
             down_kbps = None
-            if body and body.usergroup_id:
+            if target_group_id:
                 groups = unifi.get_user_groups()
-                group_match = next((g for g in groups if g.get("id") == body.usergroup_id), None)
-                if group_match:
-                    up_val = group_match.get("up_kbps")
-                    down_val = group_match.get("down_kbps")
-                    if up_val is not None and up_val > 0:
-                        up_kbps = up_val
-                    if down_val is not None and down_val > 0:
-                        down_kbps = down_val
+                if isinstance(groups, list):
+                    group_match = next((g for g in groups if isinstance(g, dict) and g.get("id") == target_group_id), None)
+                    if group_match:
+                        up_val = group_match.get("up_kbps")
+                        down_val = group_match.get("down_kbps")
+                        if up_val is not None and up_val > 0:
+                            up_kbps = up_val
+                        if down_val is not None and down_val > 0:
+                            down_kbps = down_val
 
             success = unifi.authorize_guest(norm_mac, duration_mins, up_kbps=up_kbps, down_kbps=down_kbps)
             if not success:
                 raise HTTPException(status_code=502, detail="Failed to authorize guest on UniFi Controller")
 
-            if body and body.usergroup_id:
-                unifi.set_client_user_group(norm_mac, body.usergroup_id)
+            if target_group_id:
+                unifi.set_client_user_group(norm_mac, target_group_id)
 
             if guest_req.get("name"):
                 unifi.set_client_name(norm_mac, guest_req["name"].strip())
@@ -1574,7 +1596,7 @@ def create_app(
                     "duration_minutes": duration_mins,
                     "approved_at": now,
                     "expires_at": expires_at,
-                    "usergroup_id": body.usergroup_id if body else None,
+                    "usergroup_id": target_group_id,
                 },
             )
             return {"status": "approved", "mac": norm_mac, "duration_minutes": duration_mins}

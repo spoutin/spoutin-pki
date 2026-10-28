@@ -196,35 +196,46 @@ def test_unifi_client_set_client_user_group():
         site="default",
     )
 
-    # 1. Existing user -> PUT rest/user/{user_id} succeeds
-    with patch.object(client, "get_client") as mock_get_client, patch.object(
-        client, "_put_api"
-    ) as mock_put:
-        mock_get_client.return_value = {"_id": "user123", "mac": "00:11:22:33:44:55"}
+    # 1. Found in active stations (stat/sta) -> calls upd/user then rest/user
+    with patch.object(client, "_get_api") as mock_get, patch.object(
+        client, "_post_api"
+    ) as mock_post, patch.object(client, "_put_api") as mock_put:
+        mock_get.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "sta123", "mac": "00:11:22:33:44:55"}]}
+        mock_post.return_value = True
         mock_put.return_value = True
 
         ok = client.set_client_user_group("00:11:22:33:44:55", "group_fast")
         assert ok is True
-        mock_put.assert_called_once_with("rest/user/user123", {"usergroup_id": "group_fast"})
+        mock_get.assert_called_once_with("stat/sta")
+        mock_post.assert_called_once_with("upd/user/sta123", {"usergroup_id": "group_fast"})
+        mock_put.assert_called_once_with("rest/user/sta123", {"usergroup_id": "group_fast"})
 
-    # 2. Existing user -> PUT fails, fallback to POST upd/user/{user_id}
-    with patch.object(client, "get_client") as mock_get_client, patch.object(
-        client, "_put_api"
-    ) as mock_put, patch.object(client, "_post_api") as mock_post:
-        mock_get_client.return_value = {"_id": "user123", "mac": "00:11:22:33:44:55"}
-        mock_put.return_value = False
+    # 2. Found in user list (rest/user) -> calls rest/user then upd/user
+    with patch.object(client, "_get_api") as mock_get, patch.object(
+        client, "_post_api"
+    ) as mock_post, patch.object(client, "_put_api") as mock_put:
+        mock_get.side_effect = [
+            {"meta": {"rc": "ok"}, "data": []},
+            {"meta": {"rc": "ok"}, "data": [{"_id": "user123", "mac": "00:11:22:33:44:55"}]},
+        ]
         mock_post.return_value = True
+        mock_put.return_value = True
 
         ok = client.set_client_user_group("00:11:22:33:44:55", "group_fast")
         assert ok is True
+        mock_get.assert_any_call("stat/sta")
+        mock_get.assert_any_call("rest/user")
         mock_put.assert_called_once_with("rest/user/user123", {"usergroup_id": "group_fast"})
         mock_post.assert_called_once_with("upd/user/user123", {"usergroup_id": "group_fast"})
 
-    # 3. Non-existing user -> create via POST rest/user
-    with patch.object(client, "get_client") as mock_get_client, patch.object(
+    # 3. Neither found -> create via POST rest/user
+    with patch.object(client, "_get_api") as mock_get, patch.object(
         client, "_post_api"
     ) as mock_post:
-        mock_get_client.return_value = None
+        mock_get.side_effect = [
+            {"meta": {"rc": "ok"}, "data": []},
+            {"meta": {"rc": "ok"}, "data": []},
+        ]
         mock_post.return_value = True
 
         ok = client.set_client_user_group("00:11:22:33:44:55", "group_fast")
@@ -232,6 +243,60 @@ def test_unifi_client_set_client_user_group():
         mock_post.assert_called_once_with(
             "rest/user", {"mac": "00:11:22:33:44:55", "usergroup_id": "group_fast"}
         )
+
+
+def test_unifi_client_get_default_user_group():
+    client = UnifiControllerClient(
+        url="https://10.0.0.1",
+        api_key="my-key",
+        site="default",
+    )
+
+    # 1. Matches "Guest speed" (case-insensitive)
+    with patch.object(client, "get_user_groups") as mock_groups:
+        mock_groups.return_value = [
+            {"id": "g1", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+            {"id": "g2", "name": "Guest Speed", "down_kbps": 20000, "up_kbps": 5000},
+        ]
+        res = client.get_default_user_group()
+        assert res is not None
+        assert res["id"] == "g2"
+        assert res["name"] == "Guest Speed"
+
+    # 2. Matches "Guest" when no exact "Guest speed"
+    with patch.object(client, "get_user_groups") as mock_groups:
+        mock_groups.return_value = [
+            {"id": "g1", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+            {"id": "g3", "name": "Guest Limited", "down_kbps": 10000, "up_kbps": 2000},
+        ]
+        res = client.get_default_user_group()
+        assert res is not None
+        assert res["id"] == "g3"
+
+    # 3. Matches "Default"
+    with patch.object(client, "get_user_groups") as mock_groups:
+        mock_groups.return_value = [
+            {"id": "g4", "name": "Office Staff", "down_kbps": -1, "up_kbps": -1},
+            {"id": "g5", "name": "Default", "down_kbps": -1, "up_kbps": -1},
+        ]
+        res = client.get_default_user_group()
+        assert res is not None
+        assert res["id"] == "g5"
+
+    # 4. Fallback to first group
+    with patch.object(client, "get_user_groups") as mock_groups:
+        mock_groups.return_value = [
+            {"id": "g6", "name": "VIP", "down_kbps": -1, "up_kbps": -1},
+        ]
+        res = client.get_default_user_group()
+        assert res is not None
+        assert res["id"] == "g6"
+
+    # 5. Empty groups
+    with patch.object(client, "get_user_groups") as mock_groups:
+        mock_groups.return_value = []
+        res = client.get_default_user_group()
+        assert res is None
 
 
 def test_unifi_client_authorize_guest():

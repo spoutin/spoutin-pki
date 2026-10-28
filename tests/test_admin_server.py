@@ -802,6 +802,115 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
         )
 
 
+def test_admin_approve_guest_with_default_speed_profile(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    db.record_pending_guest(
+        mac="00:11:22:33:44:99",
+        name="Pending Guest Default",
+        reason="Testing Default Profile",
+        duration_minutes=120,
+        requested_at=1000,
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_default_user_group.return_value = {
+        "id": "ug_def",
+        "name": "Guest speed",
+        "down_kbps": 20000,
+        "up_kbps": 5000,
+    }
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug_def", "name": "Guest speed", "down_kbps": 20000, "up_kbps": 5000},
+    ]
+    mock_unifi.authorize_guest.return_value = True
+    mock_unifi.set_client_user_group.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch("services.pki.server.requests.post"), \
+         patch("services.pki.server.resolve_internal_secret", return_value="portal-secret-abc"), \
+         patch.object(client.app.state.broadcaster, "publish_admin", wraps=client.app.state.broadcaster.publish_admin) as mock_pub:
+        # Approve without specifying usergroup_id in body
+        resp = client.post(
+            "/api/admin/guests/00:11:22:33:44:99/approve",
+            json={"duration_minutes": 180},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "approved"
+
+        # Verify default profile used
+        mock_unifi.get_default_user_group.assert_called_once()
+        mock_unifi.authorize_guest.assert_called_once_with(
+            "00:11:22:33:44:99",
+            180,
+            up_kbps=5000,
+            down_kbps=20000,
+        )
+        mock_unifi.set_client_user_group.assert_called_once_with("00:11:22:33:44:99", "ug_def")
+
+        # Verify broadcast has usergroup_id set to default group
+        mock_pub.assert_called_once()
+        _, pub_kwargs = mock_pub.call_args
+        assert pub_kwargs["data"]["usergroup_id"] == "ug_def"
+
+
+def test_internal_guest_authorized_applies_default_speed_profile(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_default_user_group.return_value = {
+        "id": "ug_guest_speed",
+        "name": "Guest speed",
+        "down_kbps": 20000,
+        "up_kbps": 5000,
+    }
+    mock_unifi.set_client_user_group.return_value = True
+
+    # 1. No usergroup_id specified -> applies default speed profile
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch("services.pki.server.resolve_internal_secret", return_value="secret-tok-1"):
+        resp = client.post(
+            "/api/internal/guest-authorized",
+            headers={"X-Internal-Secret": "secret-tok-1"},
+            json={
+                "mac": "aa:bb:cc:dd:ee:11",
+                "name": "Guest Default",
+                "reason": "Default test",
+                "duration_minutes": 1440,
+                "approved_by": "slack_admin",
+                "approved_at": 1000,
+                "expires_at": 1000 + 86400,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        mock_unifi.get_default_user_group.assert_called_once()
+        mock_unifi.set_client_user_group.assert_called_once_with("aa:bb:cc:dd:ee:11", "ug_guest_speed")
+
+    # 2. Explicit usergroup_id passed in body -> applies specified profile
+    mock_unifi.reset_mock()
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch("services.pki.server.resolve_internal_secret", return_value="secret-tok-1"):
+        resp = client.post(
+            "/api/internal/guest-authorized",
+            headers={"X-Internal-Secret": "secret-tok-1"},
+            json={
+                "mac": "aa:bb:cc:dd:ee:22",
+                "name": "Guest Custom",
+                "reason": "Custom test",
+                "duration_minutes": 1440,
+                "approved_by": "slack_admin",
+                "approved_at": 1000,
+                "expires_at": 1000 + 86400,
+                "usergroup_id": "ug_vip",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        mock_unifi.get_default_user_group.assert_not_called()
+        mock_unifi.set_client_user_group.assert_called_once_with("aa:bb:cc:dd:ee:22", "ug_vip")
+
+
 def test_admin_deny_guest(admin_test_app):
     client, _, db, _, _, _ = admin_test_app
 
