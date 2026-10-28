@@ -384,6 +384,46 @@
     </div>
   </div>
 
+  <!-- Modify Guest Expiry Modal -->
+  <div id="modify-expiry-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-guest-title">Modify Guest Expiry</h3>
+        <button id="modal-close-btn" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="modal-guest-info" class="text-secondary"></p>
+        <div class="current-expiry-box">
+          <span class="label">Current Expiry:</span>
+          <span id="modal-current-expiry" class="val"></span>
+        </div>
+        <div class="presets-container">
+          <label>Quick Adjustments:</label>
+          <div class="preset-chips">
+            <span class="chip-label">Add:</span>
+            <button type="button" class="btn-chip" data-delta="3600">+1h</button>
+            <button type="button" class="btn-chip" data-delta="86400">+1d</button>
+            <button type="button" class="btn-chip" data-delta="259200">+3d</button>
+            <button type="button" class="btn-chip" data-delta="604800">+7d</button>
+            <span class="chip-label ml-2">Reduce:</span>
+            <button type="button" class="btn-chip chip-reduce" data-delta="-3600">-1h</button>
+            <button type="button" class="btn-chip chip-reduce" data-delta="-86400">-1d</button>
+            <button type="button" class="btn-chip chip-reduce" data-delta="-259200">-3d</button>
+          </div>
+        </div>
+        <div class="form-group mt-3">
+          <label for="modal-datetime-input">Exact Expiration (Calendar & Clock):</label>
+          <input type="datetime-local" id="modal-datetime-input" class="form-control" />
+        </div>
+        <div id="modal-preview-summary" class="preview-summary mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+        <button id="modal-apply-btn" class="btn btn-primary">Apply Expiry</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Web Edit & Approve Modal -->
   <div id="edit-approve-modal" class="modal-overlay hidden">
     <div class="modal-card">
@@ -409,7 +449,7 @@
         </div>
       </div>
       <div class="modal-actions">
-        <button id="modal-cancel-btn" class="btn-sm btn-reject">Cancel</button>
+        <button id="edit-approve-cancel-btn" class="btn-sm btn-reject">Cancel</button>
         <button id="modal-confirm-approve-btn" class="btn-sm btn-approve">Approve & Issue</button>
       </div>
     </div>
@@ -535,6 +575,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=0.3.17"></script>
+  <script src="/static/admin.js?v=0.3.18"></script>
 </body>
 </html>

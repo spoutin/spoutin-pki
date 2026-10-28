@@ -271,6 +271,53 @@ def test_extend_guest_session(db):
     assert res_revoked is False
 
 
+def test_set_guest_session_expiry(db):
+    now = int(time.time())
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Guest Bob",
+        reason="Partner Meeting",
+        duration_minutes=1440,
+        approved_by="slack_admin",
+        approved_at=now,
+        expires_at=now + 86400,
+    )
+
+    # Set expiry to 2 days from approval
+    new_expires = now + 172800
+    res = db.set_guest_session_expiry(mac="00:11:22:33:44:55", new_expires_at=new_expires)
+    assert res is True
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["expires_at"] == new_expires
+    assert sessions[0]["duration_minutes"] == 2880
+
+    # Reduce expiry to 1 hour from approval
+    reduced_expires = now + 3600
+    res = db.set_guest_session_expiry(mac="00:11:22:33:44:55", new_expires_at=reduced_expires)
+    assert res is True
+    sessions = db.list_guest_sessions()
+    assert sessions[0]["expires_at"] == reduced_expires
+    assert sessions[0]["duration_minutes"] == 60
+
+    # Normalization check: lowercase and whitespace
+    whitespace_expires = now + 7200
+    res = db.set_guest_session_expiry(mac="  00:11:22:33:44:55  ", new_expires_at=whitespace_expires)
+    assert res is True
+    sessions = db.list_guest_sessions()
+    assert sessions[0]["expires_at"] == whitespace_expires
+    assert sessions[0]["duration_minutes"] == 120
+
+    # Non-existent session
+    assert db.set_guest_session_expiry(mac="ff:ff:ff:ff:ff:ff", new_expires_at=now + 3600) is False
+
+    # Revoked session
+    db.revoke_guest_session(mac="00:11:22:33:44:55", revoked_by="admin")
+    assert db.set_guest_session_expiry(mac="00:11:22:33:44:55", new_expires_at=now + 3600) is False
+
+
+
 
 def test_record_guest_session_upsert_pending(db):
     now = int(time.time())

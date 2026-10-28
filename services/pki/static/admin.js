@@ -31,6 +31,20 @@
   const modalGuestCancelBtn = document.getElementById("modal-guest-cancel-btn");
   const modalGuestConfirmBtn = document.getElementById("modal-guest-confirm-btn");
   let activeRevokeGuestMac = null;
+
+  // Modify Guest Expiry Modal
+  const modifyExpiryModal = document.getElementById("modify-expiry-modal");
+  const modalGuestTitle = document.getElementById("modal-guest-title");
+  const modalCloseBtn = document.getElementById("modal-close-btn");
+  const modalGuestInfo = document.getElementById("modal-guest-info");
+  const modalCurrentExpiry = document.getElementById("modal-current-expiry");
+  const modalDatetimeInput = document.getElementById("modal-datetime-input");
+  const modalPreviewSummary = document.getElementById("modal-preview-summary");
+  const modalCancelBtn = document.querySelector("#modify-expiry-modal #modal-cancel-btn");
+  const modalApplyBtn = document.getElementById("modal-apply-btn");
+  let activeModifyGuestMac = null;
+  let activeModifyInitialExpiry = null;
+
   let cachedGuests = [];
   let cachedSpeedProfiles = [];
   let guestCountdownInterval = null;
@@ -104,7 +118,7 @@
     btn.disabled = false;
   }
 
-  const modalCancelBtn = document.getElementById("modal-cancel-btn");
+  const editApproveCancelBtn = document.getElementById("edit-approve-cancel-btn") || document.getElementById("modal-cancel-btn");
   const modalConfirmApproveBtn = document.getElementById("modal-confirm-approve-btn");
   const editApproveWarning = document.getElementById("edit-approve-warning");
   let activeModalRequestId = null;
@@ -364,7 +378,9 @@
         const g = cachedGuests.find((x) => (x.mac || "").toLowerCase().trim() === normMac);
         if (g) {
           g.expires_at = data.expires_at;
-          g.duration_minutes = data.duration_minutes;
+          if (data.duration_minutes !== undefined) {
+            g.duration_minutes = data.duration_minutes;
+          }
           const now = Math.floor(Date.now() / 1000);
           g.time_remaining_seconds = Math.max(0, data.expires_at - now);
         }
@@ -778,17 +794,19 @@
     checkDuplicateWarning(editDeviceNameInput.value.trim());
   });
 
-  modalCancelBtn.addEventListener("click", () => {
-    editApproveModal.classList.add("hidden");
-    activeModalRequestId = null;
-  });
+  if (editApproveCancelBtn) {
+    editApproveCancelBtn.addEventListener("click", () => {
+      editApproveModal.classList.add("hidden");
+      activeModalRequestId = null;
+    });
+  }
 
   modalConfirmApproveBtn.addEventListener("click", async () => {
     if (!activeModalRequestId) return;
     const newName = editDeviceNameInput.value.trim();
     const vlanId = parseInt(editVlanSelect.value, 10);
     setButtonLoading(modalConfirmApproveBtn, "Issuing...");
-    modalCancelBtn.disabled = true;
+    if (editApproveCancelBtn) editApproveCancelBtn.disabled = true;
 
     try {
       const resp = await adminFetch(`/api/admin/requests/${activeModalRequestId}/approve`, {
@@ -813,7 +831,7 @@
       }
     } finally {
       restoreButton(modalConfirmApproveBtn);
-      modalCancelBtn.disabled = false;
+      if (editApproveCancelBtn) editApproveCancelBtn.disabled = false;
     }
   });
 
@@ -1223,14 +1241,7 @@
       if (g.status === "ACTIVE") {
         actionBtn = `
           <div class="action-buttons">
-            <select class="guest-extend-select inline-select" data-mac="${escapeHtml(g.mac)}">
-              <option value="1440" selected>+1 Day</option>
-              <option value="4320">+3 Days</option>
-              <option value="10080">+7 Days</option>
-              <option value="20160">+14 Days</option>
-              <option value="43200">+30 Days</option>
-            </select>
-            <button class="btn btn-sm btn-secondary btn-extend-guest" data-mac="${escapeHtml(g.mac)}">Extend</button>
+            <button class="btn btn-sm btn-secondary btn-modify-expiry" data-mac="${escapeHtml(g.mac)}">Modify Expiry</button>
             <button class="btn-sm btn-reject" data-action="kick-guest" data-mac="${escapeHtml(g.mac)}" data-name="${escapeHtml(g.name)}">🚫 Kick &amp; Revoke</button>
           </div>
         `;
@@ -1403,32 +1414,10 @@
     });
 
     guestsTbody.addEventListener("click", async (e) => {
-      const extendBtn = e.target.closest(".btn-extend-guest");
-      if (extendBtn) {
-        const mac = extendBtn.dataset.mac;
-        const select = guestsTbody.querySelector(`.guest-extend-select[data-mac='${mac}']`);
-        const additionalMinutes = (select ? parseInt(select.value, 10) : NaN) || 1440;
-        const origText = extendBtn.textContent;
-        extendBtn.disabled = true;
-        extendBtn.textContent = "Extending...";
-
-        try {
-          const resp = await adminFetch(`/api/admin/guests/${mac}/extend`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ additional_minutes: additionalMinutes }),
-          });
-          if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
-            throw new Error(errData.detail || "Extension failed");
-          }
-          await refreshGuests();
-        } catch (err) {
-          alert("Failed to extend guest: " + err.message);
-        } finally {
-          extendBtn.disabled = false;
-          extendBtn.textContent = origText;
-        }
+      const modifyBtn = e.target.closest(".btn-modify-expiry");
+      if (modifyBtn) {
+        const mac = modifyBtn.dataset.mac;
+        openModifyExpiryModal(mac);
         return;
       }
 
@@ -1597,6 +1586,175 @@
       }
     });
   }
+
+  // --- Modify Guest Expiry Modal Functions & Listeners ---
+  function formatDateTimeLocalInput(epochSec) {
+    if (!epochSec) return "";
+    const d = new Date(epochSec * 1000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const year = d.getFullYear();
+    const month = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
+  function parseDateTimeLocalInput(val) {
+    if (!val) return null;
+    const d = new Date(val);
+    const ms = d.getTime();
+    if (isNaN(ms)) return null;
+    return Math.floor(ms / 1000);
+  }
+
+  function formatRelativeDiff(seconds) {
+    const sign = seconds > 0 ? "+" : "-";
+    const abs = Math.abs(seconds);
+    const days = Math.floor(abs / 86400);
+    const hours = Math.floor((abs % 86400) / 3600);
+    const minutes = Math.floor((abs % 3600) / 60);
+    const parts = [];
+    if (days > 0) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
+    if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+    if (minutes > 0 || parts.length === 0) parts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
+    return `${sign}${parts.join(", ")}`;
+  }
+
+  function updateModifyExpiryPreview() {
+    if (!modalPreviewSummary || !modalDatetimeInput) return;
+    const targetTimestamp = parseDateTimeLocalInput(modalDatetimeInput.value);
+    if (!targetTimestamp) {
+      modalPreviewSummary.innerHTML = `<span class="diff-invalid">Please select a valid date and time</span>`;
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (targetTimestamp <= now + 60) {
+      modalPreviewSummary.innerHTML = `<span class="diff-invalid">⚠️ Expiration must be at least 1 minute in the future</span>`;
+      return;
+    }
+
+    const formattedTarget = formatDateTime(targetTimestamp);
+    const diffSec = targetTimestamp - (activeModifyInitialExpiry || now);
+    let diffHtml = "";
+    if (diffSec === 0) {
+      diffHtml = `<span>(no change)</span>`;
+    } else if (diffSec > 0) {
+      diffHtml = `<span class="diff-add">(${formatRelativeDiff(diffSec)})</span>`;
+    } else {
+      diffHtml = `<span class="diff-sub">(${formatRelativeDiff(diffSec)})</span>`;
+    }
+    modalPreviewSummary.innerHTML = `<span>New Expiry: <strong>${escapeHtml(formattedTarget)}</strong> ${diffHtml}</span>`;
+  }
+
+  function openModifyExpiryModal(mac) {
+    const normMac = (mac || "").toLowerCase().trim();
+    const g = cachedGuests.find((x) => (x.mac || "").toLowerCase().trim() === normMac);
+    if (!g) return;
+
+    activeModifyGuestMac = normMac;
+    activeModifyInitialExpiry = g.expires_at || (Math.floor(Date.now() / 1000) + 86400);
+
+    if (modalGuestTitle) modalGuestTitle.textContent = "Modify Guest Expiry";
+    if (modalGuestInfo) modalGuestInfo.textContent = `${g.name || "Guest"} (${g.mac})`;
+    if (modalCurrentExpiry) modalCurrentExpiry.textContent = formatDateTime(g.expires_at);
+
+    if (modalDatetimeInput) {
+      modalDatetimeInput.value = formatDateTimeLocalInput(activeModifyInitialExpiry);
+    }
+    updateModifyExpiryPreview();
+
+    if (modifyExpiryModal) modifyExpiryModal.classList.remove("hidden");
+  }
+
+  function closeModifyExpiryModal() {
+    if (modifyExpiryModal) modifyExpiryModal.classList.add("hidden");
+    activeModifyGuestMac = null;
+    activeModifyInitialExpiry = null;
+  }
+
+  if (modifyExpiryModal) {
+    const chips = modifyExpiryModal.querySelectorAll(".btn-chip");
+    chips.forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const delta = parseInt(chip.dataset.delta, 10);
+        if (isNaN(delta)) return;
+
+        let currentTarget = parseDateTimeLocalInput(modalDatetimeInput ? modalDatetimeInput.value : "");
+        if (!currentTarget) {
+          currentTarget = activeModifyInitialExpiry || Math.floor(Date.now() / 1000);
+        }
+
+        let newTarget = currentTarget + delta;
+        const now = Math.floor(Date.now() / 1000);
+        const minAllowed = now + 61;
+        if (newTarget < minAllowed) {
+          newTarget = minAllowed;
+        }
+
+        if (modalDatetimeInput) {
+          modalDatetimeInput.value = formatDateTimeLocalInput(newTarget);
+        }
+        updateModifyExpiryPreview();
+      });
+    });
+  }
+
+  if (modalDatetimeInput) {
+    modalDatetimeInput.addEventListener("input", updateModifyExpiryPreview);
+    modalDatetimeInput.addEventListener("change", updateModifyExpiryPreview);
+  }
+
+  if (modalApplyBtn) {
+    modalApplyBtn.addEventListener("click", async () => {
+      if (!activeModifyGuestMac) return;
+
+      const timestamp = parseDateTimeLocalInput(modalDatetimeInput ? modalDatetimeInput.value : "");
+      const now = Math.floor(Date.now() / 1000);
+      if (!timestamp || timestamp <= now + 60) {
+        alert("New expiration must be at least 1 minute in the future");
+        return;
+      }
+
+      setButtonLoading(modalApplyBtn, "Saving...");
+      try {
+        const resp = await adminFetch(`/api/admin/guests/${activeModifyGuestMac}/modify-expiry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ new_expires_at: timestamp }),
+        });
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to update expiry");
+        }
+        closeModifyExpiryModal();
+        await refreshGuests();
+      } catch (err) {
+        alert("Failed to modify expiry: " + err.message);
+      } finally {
+        restoreButton(modalApplyBtn);
+      }
+    });
+  }
+
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener("click", closeModifyExpiryModal);
+  }
+  if (modalCancelBtn) {
+    modalCancelBtn.addEventListener("click", closeModifyExpiryModal);
+  }
+  if (modifyExpiryModal) {
+    modifyExpiryModal.addEventListener("click", (e) => {
+      if (e.target === modifyExpiryModal) {
+        closeModifyExpiryModal();
+      }
+    });
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modifyExpiryModal && !modifyExpiryModal.classList.contains("hidden")) {
+      closeModifyExpiryModal();
+    }
+  });
 
   async function refreshSshData() {
     await Promise.all([refreshSshRequests(), refreshSshInventory()]);

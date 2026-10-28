@@ -732,6 +732,86 @@ def test_admin_extend_guest(admin_test_app):
         assert resp502.status_code == 502
 
 
+def test_admin_modify_guest_expiry(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    now = int(time.time())
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Active Guest",
+        reason="Testing",
+        duration_minutes=1440,
+        approved_by="admin",
+        approved_at=now,
+        expires_at=now + 3600,
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_client_usergroups_map.return_value = {"00:11:22:33:44:55": "ug_fast"}
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug_def", "name": "Default", "down_kbps": 10000, "up_kbps": 2000},
+        {"id": "ug_fast", "name": "Fast", "down_kbps": 50000, "up_kbps": 10000},
+    ]
+    mock_unifi.authorize_guest.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch.object(client.app.state.broadcaster, "publish_admin", wraps=client.app.state.broadcaster.publish_admin) as mock_pub:
+
+        # 1. Modify expiry to 2 hours from now
+        new_expires_at = now + 7200
+        resp = client.post("/api/admin/guests/00:11:22:33:44:55/modify-expiry", json={"new_expires_at": new_expires_at})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "updated"
+        assert data["mac"] == "00:11:22:33:44:55"
+        assert data["expires_at"] == new_expires_at
+
+        # Verify UniFi authorize_guest call
+        mock_unifi.authorize_guest.assert_called_once()
+        args, kwargs = mock_unifi.authorize_guest.call_args
+        assert args[0] == "00:11:22:33:44:55"
+        duration_mins = kwargs.get("duration_minutes") or (args[1] if len(args) > 1 else None)
+        assert 119 <= duration_mins <= 121
+        assert kwargs["up_kbps"] == 10000
+        assert kwargs["down_kbps"] == 50000
+
+        # Verify DB update
+        sessions = db.list_guest_sessions()
+        assert sessions[0]["expires_at"] == new_expires_at
+        assert 119 <= sessions[0]["duration_minutes"] <= 121
+
+        # Verify broadcaster
+        mock_pub.assert_called_once()
+        _, pub_kwargs = mock_pub.call_args
+        assert pub_kwargs["event"] == "guest_extended"
+        assert pub_kwargs["data"]["mac"] == "00:11:22:33:44:55"
+        assert pub_kwargs["data"]["expires_at"] == new_expires_at
+        assert pub_kwargs["data"]["extended_by"] == "admin@spoutin.org"
+
+        # 2. Validation error: expiration <= now + 60
+        resp_invalid = client.post(
+            "/api/admin/guests/00:11:22:33:44:55/modify-expiry",
+            json={"new_expires_at": int(time.time()) + 30},
+        )
+        assert resp_invalid.status_code == 400
+        assert "at least 1 minute in the future" in resp_invalid.json()["detail"]
+
+        # 3. Modify non-active session returns 404
+        resp404 = client.post(
+            "/api/admin/guests/99:99:99:99:99:99/modify-expiry",
+            json={"new_expires_at": int(time.time()) + 7200},
+        )
+        assert resp404.status_code == 404
+
+        # 4. UniFi failure returns 502
+        mock_unifi.authorize_guest.return_value = False
+        resp502 = client.post(
+            "/api/admin/guests/00:11:22:33:44:55/modify-expiry",
+            json={"new_expires_at": int(time.time()) + 7200},
+        )
+        assert resp502.status_code == 502
+
+
 def test_admin_sync_unifi_guests_endpoint(admin_test_app):
     client, _, db, _, _, _ = admin_test_app
 
