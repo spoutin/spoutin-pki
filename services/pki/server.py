@@ -1532,6 +1532,9 @@ def create_app(
             if body and body.usergroup_id:
                 unifi.set_client_user_group(norm_mac, body.usergroup_id)
 
+            if guest_req.get("name"):
+                unifi.set_client_name(norm_mac, guest_req["name"].strip())
+
             db.approve_guest_session(
                 mac=norm_mac,
                 approved_by=admin_name,

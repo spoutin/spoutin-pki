@@ -778,6 +778,7 @@ def test_admin_approve_guest_with_speed_profile(admin_test_app):
             down_kbps=50000,
         )
         mock_unifi.set_client_user_group.assert_called_once_with("00:11:22:33:44:55", "ug2")
+        mock_unifi.set_client_name.assert_called_once_with("00:11:22:33:44:55", "Pending Guest")
 
         # Verify publish_admin included usergroup_id
         mock_pub.assert_called_once()
