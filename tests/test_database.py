@@ -231,6 +231,47 @@ def test_guest_session_crud(db):
     assert updated_sessions[0]["revoked_by"] == "admin@example.com"
 
 
+def test_extend_guest_session(db):
+    now = int(time.time())
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Guest Alice",
+        reason="Consultant",
+        duration_minutes=1440,
+        approved_by="slack_admin",
+        approved_at=now,
+        expires_at=now + 86400,
+    )
+
+    # Extend active session
+    new_expires = now + 86400 + 86400
+    res = db.extend_guest_session(mac="00:11:22:33:44:55", additional_minutes=1440, new_expires_at=new_expires)
+    assert res is True
+
+    sessions = db.list_guest_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["expires_at"] == new_expires
+    assert sessions[0]["duration_minutes"] == 2880
+
+    # Extend case-insensitive mac with spaces
+    new_expires_2 = new_expires + (4320 * 60)
+    res = db.extend_guest_session(mac=" 00:11:22:33:44:55 ", additional_minutes=4320, new_expires_at=new_expires_2)
+    assert res is True
+    sessions = db.list_guest_sessions()
+    assert sessions[0]["expires_at"] == new_expires_2
+    assert sessions[0]["duration_minutes"] == 2880 + 4320
+
+    # Non-existent or non-active session returns False
+    res_non_existent = db.extend_guest_session(mac="ff:ff:ff:ff:ff:ff", additional_minutes=1440, new_expires_at=new_expires)
+    assert res_non_existent is False
+
+    # Revoke it, then try extending -> returns False
+    db.revoke_guest_session(mac="00:11:22:33:44:55", revoked_by="admin")
+    res_revoked = db.extend_guest_session(mac="00:11:22:33:44:55", additional_minutes=1440, new_expires_at=new_expires)
+    assert res_revoked is False
+
+
+
 def test_record_guest_session_upsert_pending(db):
     now = int(time.time())
     # 1. Record a pending guest session

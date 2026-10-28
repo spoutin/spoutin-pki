@@ -667,6 +667,25 @@ tr:last-child td {
 }
 .btn-approve:hover { background: var(--primary-hover); }
 
+.btn-secondary {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.inline-select {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: var(--text-main);
+  outline: none;
+}
+
 .btn-reject {
   background: transparent;
   color: var(--danger);

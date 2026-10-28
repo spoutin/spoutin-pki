@@ -186,6 +186,10 @@ class ApproveGuestBody(BaseModel):
     usergroup_id: Optional[str] = None
 
 
+class ExtendGuestBody(BaseModel):
+    additional_minutes: int = Field(1440, ge=1)
+
+
 class CreateApiTokenBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
@@ -1498,6 +1502,80 @@ def create_app(
             data={"mac": norm_mac, "revoked_by": admin_name},
         )
         return {"status": "revoked", "mac": norm_mac}
+
+    @app.post("/api/admin/guests/{mac}/extend")
+    def extend_admin_guest(mac: str, body: ExtendGuestBody, admin: dict = Depends(require_admin)):
+        norm_mac = mac.lower().strip()
+        admin_name = admin.get("email") or admin.get("name", "admin")
+
+        sessions = db.list_guest_sessions(limit=500)
+        session = next((s for s in sessions if s["mac"].lower() == norm_mac and s["status"] == "ACTIVE"), None)
+        if not session:
+            raise HTTPException(status_code=404, detail="Active guest session not found")
+
+        now = int(time.time())
+        current_expires = session["expires_at"]
+        new_expires_at = max(now, current_expires) + (body.additional_minutes * 60)
+        unifi_minutes = max(1, int((new_expires_at - now) / 60))
+
+        unifi = get_unifi_client()
+
+        # Look up client's active rate limits from their assigned group (or default group)
+        target_group_id = None
+        try:
+            ug_map = unifi.get_client_usergroups_map()
+            if isinstance(ug_map, dict):
+                target_group_id = ug_map.get(norm_mac)
+        except Exception as e:
+            logger.warning(f"Could not fetch client usergroups map for {norm_mac}: {e}")
+
+        if not target_group_id:
+            try:
+                default_grp = unifi.get_default_user_group()
+                if default_grp and isinstance(default_grp, dict):
+                    target_group_id = default_grp.get("id")
+            except Exception as e:
+                logger.warning(f"Could not fetch default user group for {norm_mac}: {e}")
+
+        up_kbps = None
+        down_kbps = None
+        if target_group_id:
+            try:
+                groups = unifi.get_user_groups()
+                if isinstance(groups, list):
+                    group_match = next((g for g in groups if isinstance(g, dict) and g.get("id") == target_group_id), None)
+                    if group_match:
+                        up_val = group_match.get("up_kbps")
+                        down_val = group_match.get("down_kbps")
+                        if up_val is not None and up_val > 0:
+                            up_kbps = up_val
+                        if down_val is not None and down_val > 0:
+                            down_kbps = down_val
+            except Exception as e:
+                logger.warning(f"Could not fetch rate limits for group {target_group_id}: {e}")
+
+        success = unifi.authorize_guest(norm_mac, duration_minutes=unifi_minutes, up_kbps=up_kbps, down_kbps=down_kbps)
+        if not success:
+            raise HTTPException(status_code=502, detail="Failed to extend guest authorization on UniFi Controller")
+
+        db.extend_guest_session(norm_mac, body.additional_minutes, new_expires_at)
+
+        new_duration_minutes = session["duration_minutes"] + body.additional_minutes
+        bc.publish_admin(
+            event="guest_extended",
+            data={
+                "mac": norm_mac,
+                "expires_at": new_expires_at,
+                "duration_minutes": new_duration_minutes,
+                "extended_by": admin_name,
+            },
+        )
+        return {
+            "status": "extended",
+            "mac": norm_mac,
+            "expires_at": new_expires_at,
+            "duration_minutes": new_duration_minutes,
+        }
 
     @app.post("/api/admin/guests/{mac}/approve")
     def approve_admin_guest(mac: str, body: ApproveGuestBody = None, admin: dict = Depends(require_admin)):

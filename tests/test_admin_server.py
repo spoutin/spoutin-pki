@@ -1,3 +1,4 @@
+import time
 from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
@@ -661,6 +662,74 @@ def test_admin_token_management_endpoints(admin_test_app):
         },
     )
     assert fail_resp.status_code == 401
+
+
+def test_admin_extend_guest(admin_test_app):
+    client, _, db, _, _, _ = admin_test_app
+
+    now = int(time.time())
+    db.record_guest_session(
+        mac="00:11:22:33:44:55",
+        name="Active Guest",
+        reason="Testing",
+        duration_minutes=1440,
+        approved_by="admin",
+        approved_at=now,
+        expires_at=now + 3600,  # 1 hour remaining
+    )
+
+    mock_unifi = MagicMock()
+    mock_unifi.get_client_usergroups_map.return_value = {"00:11:22:33:44:55": "ug_fast"}
+    mock_unifi.get_user_groups.return_value = [
+        {"id": "ug_def", "name": "Default", "down_kbps": 10000, "up_kbps": 2000},
+        {"id": "ug_fast", "name": "Fast", "down_kbps": 50000, "up_kbps": 10000},
+    ]
+    mock_unifi.authorize_guest.return_value = True
+
+    with patch("services.pki.server.get_unifi_client", return_value=mock_unifi), \
+         patch.object(client.app.state.broadcaster, "publish_admin", wraps=client.app.state.broadcaster.publish_admin) as mock_pub:
+
+        # 1. Extend by 1440 mins
+        resp = client.post("/api/admin/guests/00:11:22:33:44:55/extend", json={"additional_minutes": 1440})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "extended"
+        assert data["mac"] == "00:11:22:33:44:55"
+        assert data["duration_minutes"] == 1440 + 1440
+        expected_new_expires = (now + 3600) + (1440 * 60)
+        assert abs(data["expires_at"] - expected_new_expires) <= 2
+
+        # Verify UniFi authorize_guest call
+        mock_unifi.authorize_guest.assert_called_once()
+        args, kwargs = mock_unifi.authorize_guest.call_args
+        assert args[0] == "00:11:22:33:44:55"
+        # remaining minutes = (new_expires - now) / 60 = (3600 + 1440*60)/60 = 60 + 1440 = 1500
+        duration_mins = kwargs.get("duration_minutes") or (args[1] if len(args) > 1 else None)
+        assert duration_mins >= 1499 and duration_mins <= 1501
+        assert kwargs["up_kbps"] == 10000
+        assert kwargs["down_kbps"] == 50000
+
+        # Verify DB update
+        sessions = db.list_guest_sessions()
+        assert sessions[0]["duration_minutes"] == 2880
+        assert abs(sessions[0]["expires_at"] - expected_new_expires) <= 2
+
+        # Verify broadcaster
+        mock_pub.assert_called_once()
+        _, pub_kwargs = mock_pub.call_args
+        assert pub_kwargs["event"] == "guest_extended"
+        assert pub_kwargs["data"]["mac"] == "00:11:22:33:44:55"
+        assert pub_kwargs["data"]["duration_minutes"] == 2880
+        assert pub_kwargs["data"]["extended_by"] == "admin@spoutin.org"
+
+        # 2. Extend non-active session returns 404
+        resp404 = client.post("/api/admin/guests/99:99:99:99:99:99/extend", json={"additional_minutes": 1440})
+        assert resp404.status_code == 404
+
+        # 3. UniFi failure returns 502
+        mock_unifi.authorize_guest.return_value = False
+        resp502 = client.post("/api/admin/guests/00:11:22:33:44:55/extend", json={"additional_minutes": 60})
+        assert resp502.status_code == 502
 
 
 def test_admin_sync_unifi_guests_endpoint(admin_test_app):

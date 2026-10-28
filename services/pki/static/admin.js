@@ -357,6 +357,23 @@
       }
     });
 
+    adminEventSource.addEventListener("guest_extended", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const normMac = (data.mac || "").toLowerCase().trim();
+        const g = cachedGuests.find((x) => (x.mac || "").toLowerCase().trim() === normMac);
+        if (g) {
+          g.expires_at = data.expires_at;
+          g.duration_minutes = data.duration_minutes;
+          const now = Math.floor(Date.now() / 1000);
+          g.time_remaining_seconds = Math.max(0, data.expires_at - now);
+        }
+        renderGuestsTable();
+      } catch (e) {
+        console.error("Error processing guest_extended event", e);
+      }
+    });
+
     adminEventSource.onerror = () => {
       if (liveText) liveText.textContent = "Connecting...";
       if (pulseDot) pulseDot.style.backgroundColor = "var(--warning)";
@@ -1202,9 +1219,24 @@
         ? `<span style="color:var(--text-muted);">${g.status === "DENIED" ? "Denied" : "Revoked"}</span>`
         : `<span class="guest-countdown" data-expires="${g.expires_at}">${formatCountdown(g.time_remaining_seconds)}</span>`;
 
-      const actionBtn = (g.status === "ACTIVE")
-        ? `<button class="btn-sm btn-reject" data-action="kick-guest" data-mac="${escapeHtml(g.mac)}" data-name="${escapeHtml(g.name)}">🚫 Kick &amp; Revoke</button>`
-        : `<span style="color:var(--text-muted); font-size:0.8rem;">${g.status === "DENIED" ? "Denied" : "Completed"}</span>`;
+      let actionBtn = "";
+      if (g.status === "ACTIVE") {
+        actionBtn = `
+          <div class="action-buttons">
+            <select class="guest-extend-select inline-select" data-mac="${escapeHtml(g.mac)}">
+              <option value="1440" selected>+1 Day</option>
+              <option value="4320">+3 Days</option>
+              <option value="10080">+7 Days</option>
+              <option value="20160">+14 Days</option>
+              <option value="43200">+30 Days</option>
+            </select>
+            <button class="btn btn-sm btn-secondary btn-extend-guest" data-mac="${escapeHtml(g.mac)}">Extend</button>
+            <button class="btn-sm btn-reject" data-action="kick-guest" data-mac="${escapeHtml(g.mac)}" data-name="${escapeHtml(g.name)}">🚫 Kick &amp; Revoke</button>
+          </div>
+        `;
+      } else {
+        actionBtn = `<span style="color:var(--text-muted); font-size:0.8rem;">${g.status === "DENIED" ? "Denied" : "Completed"}</span>`;
+      }
 
       tr.innerHTML = `
         <td>
@@ -1370,7 +1402,36 @@
       }
     });
 
-    guestsTbody.addEventListener("click", (e) => {
+    guestsTbody.addEventListener("click", async (e) => {
+      const extendBtn = e.target.closest(".btn-extend-guest");
+      if (extendBtn) {
+        const mac = extendBtn.dataset.mac;
+        const select = guestsTbody.querySelector(`.guest-extend-select[data-mac='${mac}']`);
+        const additionalMinutes = (select ? parseInt(select.value, 10) : NaN) || 1440;
+        const origText = extendBtn.textContent;
+        extendBtn.disabled = true;
+        extendBtn.textContent = "Extending...";
+
+        try {
+          const resp = await adminFetch(`/api/admin/guests/${mac}/extend`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ additional_minutes: additionalMinutes }),
+          });
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.detail || "Extension failed");
+          }
+          await refreshGuests();
+        } catch (err) {
+          alert("Failed to extend guest: " + err.message);
+        } finally {
+          extendBtn.disabled = false;
+          extendBtn.textContent = origText;
+        }
+        return;
+      }
+
       const btn = e.target.closest("button[data-action='kick-guest']");
       if (!btn) return;
       const mac = btn.dataset.mac;

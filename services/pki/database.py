@@ -694,6 +694,21 @@ class CertificateDatabase:
             self._conn.commit()
             return cur.rowcount > 0
 
+    def extend_guest_session(self, mac: str, additional_minutes: int, new_expires_at: int) -> bool:
+        norm_mac = mac.lower().strip()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE guest_sessions
+                SET expires_at = ?, duration_minutes = duration_minutes + ?
+                WHERE LOWER(mac) = ? AND status = 'ACTIVE'
+                """,
+                (new_expires_at, additional_minutes, norm_mac),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def sync_unifi_guest_sessions(self, unifi_guests: list[dict[str, Any]]) -> int:
         """
         Syncs guest authorizations from UniFi Controller into guest_sessions.
