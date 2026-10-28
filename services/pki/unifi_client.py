@@ -260,54 +260,28 @@ class UnifiControllerClient:
         """Sets client alias / display name in UniFi."""
         norm_mac = mac.lower().strip()
         cleaned_name = name.strip()
-        if not self.base_url:
+        if not cleaned_name:
             return False
 
         try:
-            self._login_if_needed()
-
-            # Query existing user
-            resp = self.session.get(
-                f"{self.base_url}/api/s/{self.site}/rest/user?mac={norm_mac}",
-                timeout=10,
-            )
-            if resp.ok:
-                resp_json = resp.json() if callable(getattr(resp, "json", None)) else {}
-                data = resp_json.get("data", []) if isinstance(resp_json, dict) else []
-                if data:
+            # 1. Query existing user
+            user_data = self._get_api(f"rest/user?mac={norm_mac}")
+            if user_data:
+                data = user_data.get("data", [])
+                if data and isinstance(data, list) and "_id" in data[0]:
                     user_id = data[0]["_id"]
-                    put_resp = self.session.put(
-                        f"{self.base_url}/api/s/{self.site}/rest/user/{user_id}",
-                        json={"name": cleaned_name},
-                        timeout=10,
-                    )
-                    return put_resp.status_code == 200
+                    return self._put_api(f"rest/user/{user_id}", {"name": cleaned_name})
 
-            # If not in rest/user, try querying active station
-            sta_resp = self.session.get(
-                f"{self.base_url}/api/s/{self.site}/stat/sta?mac={norm_mac}",
-                timeout=10,
-            )
-            if sta_resp.ok:
-                sta_json = sta_resp.json() if callable(getattr(sta_resp, "json", None)) else {}
-                sta_data = sta_json.get("data", []) if isinstance(sta_json, dict) else []
-                if sta_data:
-                    user_id = sta_data[0]["_id"]
-                    post_resp = self.session.post(
-                        f"{self.base_url}/api/s/{self.site}/upd/user/{user_id}",
-                        json={"name": cleaned_name},
-                        timeout=10,
-                    )
-                    if post_resp.status_code == 200:
-                        return True
+            # 2. Query active station
+            sta_data = self._get_api(f"stat/sta?mac={norm_mac}")
+            if sta_data:
+                data = sta_data.get("data", [])
+                if data and isinstance(data, list) and "_id" in data[0]:
+                    user_id = data[0]["_id"]
+                    return self._post_api(f"upd/user/{user_id}", {"name": cleaned_name})
 
-            # Or attempt create
-            create_resp = self.session.post(
-                f"{self.base_url}/api/s/{self.site}/rest/user",
-                json={"mac": norm_mac, "name": cleaned_name},
-                timeout=10,
-            )
-            return create_resp.status_code in (200, 201)
+            # 3. Create user record
+            return self._post_api("rest/user", {"mac": norm_mac, "name": cleaned_name})
         except Exception as e:
             logger.warning(f"UniFi set_client_name failed for {norm_mac}: {e}")
             return False

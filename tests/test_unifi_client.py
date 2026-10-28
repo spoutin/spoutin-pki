@@ -356,28 +356,14 @@ def test_unifi_client_set_client_name_existing_user():
         site="default",
     )
 
-    with patch.object(client.session, "get") as mock_get, patch.object(client.session, "put") as mock_put:
-        resp_get = MagicMock()
-        resp_get.ok = True
-        resp_get.status_code = 200
-        resp_get.json.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "u123", "mac": "00:11:22:33:44:55"}]}
-        mock_get.return_value = resp_get
-
-        resp_put = MagicMock()
-        resp_put.status_code = 200
-        mock_put.return_value = resp_put
+    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_put_api") as mock_put:
+        mock_get.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "u123", "mac": "00:11:22:33:44:55"}]}
+        mock_put.return_value = True
 
         ok = client.set_client_name("00:11:22:33:44:55", "Alice")
         assert ok is True
-        mock_get.assert_called_once_with(
-            "https://10.0.0.1/api/s/default/rest/user?mac=00:11:22:33:44:55",
-            timeout=10,
-        )
-        mock_put.assert_called_once_with(
-            "https://10.0.0.1/api/s/default/rest/user/u123",
-            json={"name": "Alice"},
-            timeout=10,
-        )
+        mock_get.assert_called_once_with("rest/user?mac=00:11:22:33:44:55")
+        mock_put.assert_called_once_with("rest/user/u123", {"name": "Alice"})
 
 
 def test_unifi_client_set_client_name_from_active_station():
@@ -387,33 +373,19 @@ def test_unifi_client_set_client_name_from_active_station():
         site="default",
     )
 
-    with patch.object(client.session, "get") as mock_get, patch.object(client.session, "post") as mock_post:
-        resp_user = MagicMock()
-        resp_user.ok = True
-        resp_user.status_code = 200
-        resp_user.json.return_value = {"meta": {"rc": "ok"}, "data": []}
-
-        resp_sta = MagicMock()
-        resp_sta.ok = True
-        resp_sta.status_code = 200
-        resp_sta.json.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "sta999", "mac": "00:11:22:33:44:55"}]}
-
-        mock_get.side_effect = [resp_user, resp_sta]
-
-        resp_post = MagicMock()
-        resp_post.status_code = 200
-        mock_post.return_value = resp_post
+    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_post_api") as mock_post:
+        mock_get.side_effect = [
+            {"meta": {"rc": "ok"}, "data": []},
+            {"meta": {"rc": "ok"}, "data": [{"_id": "sta999", "mac": "00:11:22:33:44:55"}]},
+        ]
+        mock_post.return_value = True
 
         ok = client.set_client_name("00:11:22:33:44:55", "Bob")
         assert ok is True
         assert mock_get.call_count == 2
-        mock_get.assert_any_call("https://10.0.0.1/api/s/default/rest/user?mac=00:11:22:33:44:55", timeout=10)
-        mock_get.assert_any_call("https://10.0.0.1/api/s/default/stat/sta?mac=00:11:22:33:44:55", timeout=10)
-        mock_post.assert_called_once_with(
-            "https://10.0.0.1/api/s/default/upd/user/sta999",
-            json={"name": "Bob"},
-            timeout=10,
-        )
+        mock_get.assert_any_call("rest/user?mac=00:11:22:33:44:55")
+        mock_get.assert_any_call("stat/sta?mac=00:11:22:33:44:55")
+        mock_post.assert_called_once_with("upd/user/sta999", {"name": "Bob"})
 
 
 def test_unifi_client_set_client_name_create_user():
@@ -423,25 +395,17 @@ def test_unifi_client_set_client_name_create_user():
         site="default",
     )
 
-    with patch.object(client.session, "get") as mock_get, patch.object(client.session, "post") as mock_post:
-        resp_empty = MagicMock()
-        resp_empty.ok = True
-        resp_empty.status_code = 200
-        resp_empty.json.return_value = {"meta": {"rc": "ok"}, "data": []}
-
-        mock_get.side_effect = [resp_empty, resp_empty]
-
-        resp_post = MagicMock()
-        resp_post.status_code = 201
-        mock_post.return_value = resp_post
+    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_post_api") as mock_post:
+        mock_get.side_effect = [
+            {"meta": {"rc": "ok"}, "data": []},
+            {"meta": {"rc": "ok"}, "data": []},
+        ]
+        mock_post.return_value = True
 
         ok = client.set_client_name("00:11:22:33:44:55", "Charlie")
         assert ok is True
-        mock_post.assert_called_once_with(
-            "https://10.0.0.1/api/s/default/rest/user",
-            json={"mac": "00:11:22:33:44:55", "name": "Charlie"},
-            timeout=10,
-        )
+        assert mock_get.call_count == 2
+        mock_post.assert_called_once_with("rest/user", {"mac": "00:11:22:33:44:55", "name": "Charlie"})
 
 
 def test_unifi_client_set_client_name_error_handling():
