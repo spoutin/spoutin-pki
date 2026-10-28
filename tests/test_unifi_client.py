@@ -356,13 +356,18 @@ def test_unifi_client_set_client_name_existing_user():
         site="default",
     )
 
-    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_put_api") as mock_put:
-        mock_get.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "u123", "mac": "00:11:22:33:44:55"}]}
+    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_put_api") as mock_put, patch.object(client, "_post_api") as mock_post:
+        mock_get.side_effect = [
+            {"meta": {"rc": "ok"}, "data": []},
+            {"meta": {"rc": "ok"}, "data": [{"_id": "u123", "mac": "00:11:22:33:44:55"}]}
+        ]
         mock_put.return_value = True
+        mock_post.return_value = True
 
         ok = client.set_client_name("00:11:22:33:44:55", "Alice")
         assert ok is True
-        mock_get.assert_called_once_with("rest/user?mac=00:11:22:33:44:55")
+        mock_get.assert_any_call("stat/sta")
+        mock_get.assert_any_call("rest/user")
         mock_put.assert_called_once_with("rest/user/u123", {"name": "Alice"})
 
 
@@ -373,19 +378,16 @@ def test_unifi_client_set_client_name_from_active_station():
         site="default",
     )
 
-    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_post_api") as mock_post:
-        mock_get.side_effect = [
-            {"meta": {"rc": "ok"}, "data": []},
-            {"meta": {"rc": "ok"}, "data": [{"_id": "sta999", "mac": "00:11:22:33:44:55"}]},
-        ]
+    with patch.object(client, "_get_api") as mock_get, patch.object(client, "_post_api") as mock_post, patch.object(client, "_put_api") as mock_put:
+        mock_get.return_value = {"meta": {"rc": "ok"}, "data": [{"_id": "sta999", "mac": "00:11:22:33:44:55"}]}
         mock_post.return_value = True
+        mock_put.return_value = True
 
         ok = client.set_client_name("00:11:22:33:44:55", "Bob")
         assert ok is True
-        assert mock_get.call_count == 2
-        mock_get.assert_any_call("rest/user?mac=00:11:22:33:44:55")
-        mock_get.assert_any_call("stat/sta?mac=00:11:22:33:44:55")
+        mock_get.assert_called_once_with("stat/sta")
         mock_post.assert_called_once_with("upd/user/sta999", {"name": "Bob"})
+        mock_put.assert_called_once_with("rest/user/sta999", {"name": "Bob"})
 
 
 def test_unifi_client_set_client_name_create_user():
@@ -404,7 +406,6 @@ def test_unifi_client_set_client_name_create_user():
 
         ok = client.set_client_name("00:11:22:33:44:55", "Charlie")
         assert ok is True
-        assert mock_get.call_count == 2
         mock_post.assert_called_once_with("rest/user", {"mac": "00:11:22:33:44:55", "name": "Charlie"})
 
 

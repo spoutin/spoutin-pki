@@ -264,23 +264,29 @@ class UnifiControllerClient:
             return False
 
         try:
-            # 1. Query existing user
-            user_data = self._get_api(f"rest/user?mac={norm_mac}")
-            if user_data:
-                data = user_data.get("data", [])
-                if data and isinstance(data, list) and "_id" in data[0]:
-                    user_id = data[0]["_id"]
-                    return self._put_api(f"rest/user/{user_id}", {"name": cleaned_name})
-
-            # 2. Query active station
-            sta_data = self._get_api(f"stat/sta?mac={norm_mac}")
+            # 1. Look in active stations first
+            sta_data = self._get_api("stat/sta")
             if sta_data:
-                data = sta_data.get("data", [])
-                if data and isinstance(data, list) and "_id" in data[0]:
-                    user_id = data[0]["_id"]
-                    return self._post_api(f"upd/user/{user_id}", {"name": cleaned_name})
+                stations = sta_data.get("data", [])
+                match = next((s for s in stations if s.get("mac", "").lower() == norm_mac), None)
+                if match and match.get("_id"):
+                    user_id = match["_id"]
+                    self._post_api(f"upd/user/{user_id}", {"name": cleaned_name})
+                    self._put_api(f"rest/user/{user_id}", {"name": cleaned_name})
+                    return True
 
-            # 3. Create user record
+            # 2. Look in user list
+            user_data = self._get_api("rest/user")
+            if user_data:
+                users = user_data.get("data", [])
+                match = next((u for u in users if u.get("mac", "").lower() == norm_mac), None)
+                if match and match.get("_id"):
+                    user_id = match["_id"]
+                    self._put_api(f"rest/user/{user_id}", {"name": cleaned_name})
+                    self._post_api(f"upd/user/{user_id}", {"name": cleaned_name})
+                    return True
+
+            # 3. Create user record if doesn't exist
             return self._post_api("rest/user", {"mac": norm_mac, "name": cleaned_name})
         except Exception as e:
             logger.warning(f"UniFi set_client_name failed for {norm_mac}: {e}")
