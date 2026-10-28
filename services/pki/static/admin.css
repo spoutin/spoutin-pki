@@ -667,13 +667,16 @@ tr:last-child td {
 }
 .btn-approve:hover { background: var(--primary-hover); }
 
-.btn-secondary {
-  background: transparent;
+.btn-secondary,
+.btn-modify-expiry {
+  background: var(--panel-bg, #1a2233);
   color: var(--text-main);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border, #23314a) !important;
 }
-.btn-secondary:hover {
-  background: var(--border);
+.btn-secondary:hover,
+.btn-modify-expiry:hover {
+  background: var(--border, #23314a);
+  border-color: var(--text-muted) !important;
 }
 
 .inline-select {
